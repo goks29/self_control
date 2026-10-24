@@ -153,5 +153,91 @@ void main() {
       expect(logRepo.logs.first.details, 'lock_screen_launched');
       expect(platform.pendingActivityLogs.isEmpty, isTrue);
     });
+
+    testWidgets('sanitizes overflow and negative timestamps in activity logs without aborting', (tester) async {
+      final logRepo = FakeActivityLogRepository();
+      final appRepo = FakeBlockedAppRepository();
+      final settingsRepo = FakeSettingsRepository();
+      final unlockRepo = FakeTemporaryUnlockRepository();
+      final platform = FakeBlockingPlatformChannel(accessibilityStatus: 'enabled');
+      platform.pendingActivityLogs = [
+        {
+          'packageName': 'com.overflow.target',
+          'outcome': 'attempted',
+          'details': 'overflow_timestamp',
+          'timestampMs': 9223372036854775807,
+        },
+        {
+          'packageName': 'com.negative.target',
+          'outcome': 'confirmed',
+          'details': 'negative_timestamp',
+          'timestampMs': -1,
+        },
+        {
+          'packageName': 'com.valid.target',
+          'outcome': 'failed',
+          'details': 'valid_timestamp',
+          'timestampMs': 1700000000000,
+        },
+      ];
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: MainScaffold(
+            activityLogRepository: logRepo,
+            blockedAppRepository: appRepo,
+            settingsRepository: settingsRepo,
+            temporaryUnlockRepository: unlockRepo,
+            platformChannel: platform,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(logRepo.logs.length, 3);
+      expect(logRepo.logs[0].packageNameSnapshot, 'com.overflow.target');
+      expect(logRepo.logs[0].attemptedAt.millisecondsSinceEpoch > 0, isTrue);
+      expect(logRepo.logs[1].packageNameSnapshot, 'com.negative.target');
+      expect(logRepo.logs[1].attemptedAt.millisecondsSinceEpoch > 0, isTrue);
+      expect(logRepo.logs[2].packageNameSnapshot, 'com.valid.target');
+      expect(logRepo.logs[2].attemptedAt.millisecondsSinceEpoch, 1700000000000);
+      expect(platform.pendingActivityLogs.isEmpty, isTrue);
+    });
+
+    testWidgets('sanitizes overflow timestamps in boot sync events', (tester) async {
+      final logRepo = FakeActivityLogRepository();
+      final appRepo = FakeBlockedAppRepository();
+      final settingsRepo = FakeSettingsRepository();
+      final unlockRepo = FakeTemporaryUnlockRepository();
+      final platform = FakeBlockingPlatformChannel(accessibilityStatus: 'enabled');
+      platform.pendingBootEvents = [
+        9223372036854775807,
+        -500,
+        1700000000000,
+      ];
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: MainScaffold(
+            activityLogRepository: logRepo,
+            blockedAppRepository: appRepo,
+            settingsRepository: settingsRepo,
+            temporaryUnlockRepository: unlockRepo,
+            platformChannel: platform,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(logRepo.logs.length, 3);
+      expect(logRepo.logs[0].packageNameSnapshot, 'system');
+      expect(logRepo.logs[0].appNameSnapshot, 'BootReceiver');
+      expect(logRepo.logs[0].attemptedAt.millisecondsSinceEpoch > 0, isTrue);
+      expect(logRepo.logs[1].packageNameSnapshot, 'system');
+      expect(logRepo.logs[1].attemptedAt.millisecondsSinceEpoch > 0, isTrue);
+      expect(logRepo.logs[2].packageNameSnapshot, 'system');
+      expect(logRepo.logs[2].attemptedAt.millisecondsSinceEpoch, 1700000000000);
+      expect(platform.pendingBootEvents.isEmpty, isTrue);
+    });
   });
 }

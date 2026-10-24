@@ -184,9 +184,11 @@ class BlockingMethodHandler(
 
             BlockingEngine.instance.syncActiveSessions(isStrict, sessionEnd, scheduleRule)
             val store = SharedPreferencesBlockingStore.create(context)
-            if (sessionEnd != null) {
+            if (sessionEnd != null && isStrict) {
                 val start = System.currentTimeMillis()
-                store.saveActiveSession(start, sessionEnd, if (isStrict) "active" else "scheduled")
+                store.saveActiveSession(start, sessionEnd, "active")
+            } else {
+                store.updateSessionStatus("completed")
             }
 
             result.success(mapOf("status" to "success"))

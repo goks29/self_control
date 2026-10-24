@@ -10,6 +10,7 @@ class SharedPreferencesBlockingStore(
 ) : BlockingPersistenceStore {
 
     companion object {
+        private val syncLock = Any()
         const val PREFS_NAME = "self_control_blocking_prefs"
         const val KEY_BLOCKED_PACKAGES = "blocked_packages"
         const val KEY_SESSION_START = "active_session_start"
@@ -84,25 +85,27 @@ class SharedPreferencesBlockingStore(
         }
     }
 
-    @Synchronized
     override fun recordPendingBootSync(timestampMs: Long) {
-        try {
-            val current = prefs.getStringSet(KEY_PENDING_BOOT_SYNCS, emptySet())?.toMutableSet() ?: mutableSetOf()
-            current.add(timestampMs.toString())
-            prefs.edit().putStringSet(KEY_PENDING_BOOT_SYNCS, current).apply()
-        } catch (_: Exception) {
+        synchronized(syncLock) {
+            try {
+                val current = prefs.getStringSet(KEY_PENDING_BOOT_SYNCS, emptySet())?.toMutableSet() ?: mutableSetOf()
+                current.add(timestampMs.toString())
+                prefs.edit().putStringSet(KEY_PENDING_BOOT_SYNCS, current).apply()
+            } catch (_: Exception) {
+            }
         }
     }
 
-    @Synchronized
     override fun consumePendingBootSyncs(): List<Long> {
-        return try {
-            val current = prefs.getStringSet(KEY_PENDING_BOOT_SYNCS, emptySet()) ?: emptySet()
-            if (current.isEmpty()) return emptyList()
-            prefs.edit().remove(KEY_PENDING_BOOT_SYNCS).apply()
-            current.mapNotNull { it.toLongOrNull() }.sorted()
-        } catch (_: Exception) {
-            emptyList()
+        return synchronized(syncLock) {
+            try {
+                val current = prefs.getStringSet(KEY_PENDING_BOOT_SYNCS, emptySet()) ?: emptySet()
+                if (current.isEmpty()) return emptyList()
+                prefs.edit().remove(KEY_PENDING_BOOT_SYNCS).apply()
+                current.mapNotNull { it.toLongOrNull() }.sorted()
+            } catch (_: Exception) {
+                emptyList()
+            }
         }
     }
 
@@ -169,11 +172,43 @@ class SharedPreferencesBlockingStore(
                     val expiration = when (value) {
                         is Long -> value
                         is Number -> value.toLong()
-                        is String -> value.toLongOrNull()
+                        is String -> {
+                            try {
+                                if (value.trim().startsWith("{")) {
+                                    val obj = JSONObject(value)
+                                    obj.optLong("expirationMs", 0L)
+                                } else {
+                                    value.toLongOrNull()
+                                }
+                            } catch (_: Exception) {
+                                value.toLongOrNull()
+                            }
+                        }
                         else -> null
                     }
                     if (expiration != null && expiration <= nowMs) {
                         editor.remove(key)
+                    }
+                }
+            }
+            val jsonStr = prefs.getString(KEY_UNLOCKS_JSON, null)
+            if (jsonStr != null) {
+                val json = JSONObject(jsonStr)
+                val keysToRemove = mutableListOf<String>()
+                for (k in json.keys()) {
+                    val exp = json.optLong(k, 0L)
+                    if (exp <= nowMs) {
+                        keysToRemove.add(k)
+                    }
+                }
+                if (keysToRemove.isNotEmpty()) {
+                    for (k in keysToRemove) {
+                        json.remove(k)
+                    }
+                    if (json.length() == 0) {
+                        editor.remove(KEY_UNLOCKS_JSON)
+                    } else {
+                        editor.putString(KEY_UNLOCKS_JSON, json.toString())
                     }
                 }
             }
@@ -182,58 +217,60 @@ class SharedPreferencesBlockingStore(
         }
     }
 
-    @Synchronized
     override fun recordPendingActivityLog(
         packageName: String,
         outcome: String,
         details: String?,
         timestampMs: Long
     ) {
-        try {
-            val jsonStr = prefs.getString(KEY_PENDING_ACTIVITY_LOGS, null)
-            val array = if (jsonStr != null) JSONArray(jsonStr) else JSONArray()
-            val item = JSONObject().apply {
-                put("packageName", packageName)
-                put("outcome", outcome)
-                if (details != null) put("details", details)
-                put("timestampMs", timestampMs)
-            }
-            if (array.length() >= MAX_PENDING_LOGS) {
-                val trimmed = JSONArray()
-                for (i in (array.length() - MAX_PENDING_LOGS + 1) until array.length()) {
-                    trimmed.put(array.get(i))
+        synchronized(syncLock) {
+            try {
+                val jsonStr = prefs.getString(KEY_PENDING_ACTIVITY_LOGS, null)
+                val array = if (jsonStr != null) JSONArray(jsonStr) else JSONArray()
+                val item = JSONObject().apply {
+                    put("packageName", packageName)
+                    put("outcome", outcome)
+                    if (details != null) put("details", details)
+                    put("timestampMs", timestampMs)
                 }
-                trimmed.put(item)
-                prefs.edit().putString(KEY_PENDING_ACTIVITY_LOGS, trimmed.toString()).apply()
-            } else {
-                array.put(item)
-                prefs.edit().putString(KEY_PENDING_ACTIVITY_LOGS, array.toString()).apply()
+                if (array.length() >= MAX_PENDING_LOGS) {
+                    val trimmed = JSONArray()
+                    for (i in (array.length() - MAX_PENDING_LOGS + 1) until array.length()) {
+                        trimmed.put(array.get(i))
+                    }
+                    trimmed.put(item)
+                    prefs.edit().putString(KEY_PENDING_ACTIVITY_LOGS, trimmed.toString()).apply()
+                } else {
+                    array.put(item)
+                    prefs.edit().putString(KEY_PENDING_ACTIVITY_LOGS, array.toString()).apply()
+                }
+            } catch (_: Exception) {
             }
-        } catch (_: Exception) {
         }
     }
 
-    @Synchronized
     override fun consumePendingActivityLogs(): List<Map<String, Any?>> {
-        return try {
-            val jsonStr = prefs.getString(KEY_PENDING_ACTIVITY_LOGS, null) ?: return emptyList()
-            prefs.edit().remove(KEY_PENDING_ACTIVITY_LOGS).apply()
-            val array = JSONArray(jsonStr)
-            val result = mutableListOf<Map<String, Any?>>()
-            for (i in 0 until array.length()) {
-                val obj = array.getJSONObject(i)
-                val map = mutableMapOf<String, Any?>()
-                map["packageName"] = obj.optString("packageName", "")
-                map["outcome"] = obj.optString("outcome", "")
-                if (obj.has("details")) {
-                    map["details"] = obj.optString("details")
+        return synchronized(syncLock) {
+            try {
+                val jsonStr = prefs.getString(KEY_PENDING_ACTIVITY_LOGS, null) ?: return emptyList()
+                prefs.edit().remove(KEY_PENDING_ACTIVITY_LOGS).apply()
+                val array = JSONArray(jsonStr)
+                val result = mutableListOf<Map<String, Any?>>()
+                for (i in 0 until array.length()) {
+                    val obj = array.getJSONObject(i)
+                    val map = mutableMapOf<String, Any?>()
+                    map["packageName"] = obj.optString("packageName", "")
+                    map["outcome"] = obj.optString("outcome", "")
+                    if (obj.has("details")) {
+                        map["details"] = obj.optString("details")
+                    }
+                    map["timestampMs"] = obj.optLong("timestampMs", 0L)
+                    result.add(map)
                 }
-                map["timestampMs"] = obj.optLong("timestampMs", 0L)
-                result.add(map)
+                result
+            } catch (_: Exception) {
+                emptyList()
             }
-            result
-        } catch (_: Exception) {
-            emptyList()
         }
     }
 }

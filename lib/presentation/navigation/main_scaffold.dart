@@ -94,17 +94,32 @@ class _MainScaffoldState extends State<MainScaffold> with WidgetsBindingObserver
     }
   }
 
+  DateTime _sanitizeEpochMs(dynamic rawValue) {
+    const maxEpochMs = 8640000000000000;
+    final ms = (rawValue as num?)?.toInt();
+    if (ms == null || ms < 0 || ms > maxEpochMs) {
+      return DateTime.now();
+    }
+    try {
+      return DateTime.fromMillisecondsSinceEpoch(ms);
+    } catch (_) {
+      return DateTime.now();
+    }
+  }
+
   Future<void> _drainBootSyncs() async {
     final bootTimestamps = await _platformChannel.consumePendingBootEvents();
     for (final ts in bootTimestamps) {
-      await _logRepo.logEvent(
-        ActivityLog(
-          packageNameSnapshot: 'system',
-          appNameSnapshot: 'BootReceiver',
-          eventType: ActivityLog.eventBootCompletedSync,
-          attemptedAt: DateTime.fromMillisecondsSinceEpoch(ts),
-        ),
-      );
+      try {
+        await _logRepo.logEvent(
+          ActivityLog(
+            packageNameSnapshot: 'system',
+            appNameSnapshot: 'BootReceiver',
+            eventType: ActivityLog.eventBootCompletedSync,
+            attemptedAt: _sanitizeEpochMs(ts),
+          ),
+        );
+      } catch (_) {}
     }
   }
 
@@ -114,32 +129,34 @@ class _MainScaffoldState extends State<MainScaffold> with WidgetsBindingObserver
 
     final blockedRepo = widget.blockedAppRepository ?? BlockedAppRepositoryImpl();
     for (final raw in rawLogs) {
-      final pkg = (raw['packageName'] as String?) ?? '';
-      final outcome = (raw['outcome'] as String?) ?? ActivityLog.outcomeConfirmed;
-      final details = raw['details'] as String?;
-      final ts = (raw['timestampMs'] as num?)?.toInt() ?? DateTime.now().millisecondsSinceEpoch;
+      try {
+        final pkg = (raw['packageName'] as String?) ?? '';
+        final outcome = (raw['outcome'] as String?) ?? ActivityLog.outcomeConfirmed;
+        final details = raw['details'] as String?;
+        final safeDate = _sanitizeEpochMs(raw['timestampMs']);
 
-      String appName = pkg;
-      int? appId;
-      if (pkg.isNotEmpty) {
-        final app = await blockedRepo.getAppByPackageName(pkg);
-        if (app != null) {
-          appName = app.appName;
-          appId = app.id;
+        String appName = pkg;
+        int? appId;
+        if (pkg.isNotEmpty) {
+          final app = await blockedRepo.getAppByPackageName(pkg);
+          if (app != null) {
+            appName = app.appName;
+            appId = app.id;
+          }
         }
-      }
 
-      await _logRepo.logEvent(
-        ActivityLog(
-          appId: appId,
-          packageNameSnapshot: pkg,
-          appNameSnapshot: appName,
-          eventType: ActivityLog.eventBlockedAttempt,
-          outcome: outcome,
-          details: details,
-          attemptedAt: DateTime.fromMillisecondsSinceEpoch(ts),
-        ),
-      );
+        await _logRepo.logEvent(
+          ActivityLog(
+            appId: appId,
+            packageNameSnapshot: pkg,
+            appNameSnapshot: appName,
+            eventType: ActivityLog.eventBlockedAttempt,
+            outcome: outcome,
+            details: details,
+            attemptedAt: safeDate,
+          ),
+        );
+      } catch (_) {}
     }
   }
 

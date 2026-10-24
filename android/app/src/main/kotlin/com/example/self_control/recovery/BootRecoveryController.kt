@@ -134,6 +134,11 @@ class BootRecoveryController(
                 currentSessionStatus = "completed"
             } else {
                 currentSessionStatus = "active"
+                blockingEngine.syncActiveSessions(
+                    isStrictSessionActive = true,
+                    sessionEndEpochMs = activeSession.endEpochMs,
+                    scheduleRule = null
+                )
             }
         }
 

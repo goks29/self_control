@@ -305,8 +305,14 @@ class FakeBlockingPlatformChannel extends BlockingPlatformChannel {
     return copy;
   }
 
+  List<int> pendingBootEvents = [];
+
   @override
-  Future<List<int>> consumePendingBootEvents() async => <int>[];
+  Future<List<int>> consumePendingBootEvents() async {
+    final copy = List<int>.from(pendingBootEvents);
+    pendingBootEvents.clear();
+    return copy;
+  }
 }
 
 class DummyDatabase implements Database {
