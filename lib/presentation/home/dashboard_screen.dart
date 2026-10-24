@@ -188,12 +188,15 @@ class _DashboardScreenState extends State<DashboardScreen> {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                const Text(
-                  'Aplikasi Terbanyak Diblokir',
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w700,
-                    color: AppColors.darkGreen,
+                const Expanded(
+                  child: Text(
+                    'Aplikasi Terbanyak Diblokir',
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w700,
+                      color: AppColors.darkGreen,
+                    ),
                   ),
                 ),
                 Container(

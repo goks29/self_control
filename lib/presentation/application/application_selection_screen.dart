@@ -183,12 +183,15 @@ class _ApplicationSelectionScreenState extends State<ApplicationSelectionScreen>
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Text(
-                  '$selectedCount aplikasi dipilih',
-                  style: const TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600,
-                    color: AppColors.darkGreen,
+                Expanded(
+                  child: Text(
+                    '$selectedCount aplikasi dipilih',
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                      color: AppColors.darkGreen,
+                    ),
                   ),
                 ),
                 TextButton(

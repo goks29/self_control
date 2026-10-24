@@ -133,7 +133,7 @@ class FakeSettingsRepository implements SettingsRepository {
 
   @override
   Future<bool> verifyPassword(String plainPassword) async {
-    if (_expectedPassword == null) return true;
+    if (_expectedPassword == null) return false;
     return plainPassword == _expectedPassword;
   }
 
