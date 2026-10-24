@@ -5,6 +5,8 @@ class ActivityLog {
   static const String eventTemporaryUnlockExpired = 'temporary_unlock_expired';
   static const String eventBlockStarted = 'block_started';
   static const String eventBlockEnded = 'block_ended';
+  static const String eventTamperingDetected = 'tampering_detected';
+  static const String eventBootCompletedSync = 'boot_completed_sync';
 
   final int? id;
   final int? appId;

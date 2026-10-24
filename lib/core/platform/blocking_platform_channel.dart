@@ -89,4 +89,65 @@ class BlockingPlatformChannel {
     } catch (_) {}
     return 'not_required';
   }
+
+  Future<bool> syncTemporaryUnlock({
+    required String packageName,
+    required int durationSeconds,
+    required int expiresAtEpochMs,
+  }) async {
+    try {
+      final result = await _channel.invokeMethod<Map<dynamic, dynamic>>(
+        'syncTemporaryUnlock',
+        {
+          'packageName': packageName,
+          'durationSeconds': durationSeconds,
+          'expiresAtEpochMs': expiresAtEpochMs,
+        },
+      );
+      return result?['status'] == 'success';
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<bool> revokeTemporaryUnlock(String packageName) async {
+    try {
+      final result = await _channel.invokeMethod<Map<dynamic, dynamic>>(
+        'revokeTemporaryUnlock',
+        {'packageName': packageName},
+      );
+      return result?['status'] == 'success';
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<bool> syncActiveSessions({
+    required bool isStrictSessionActive,
+    int? sessionEndEpochMs,
+    Map<String, dynamic>? activeSchedule,
+  }) async {
+    try {
+      final result = await _channel.invokeMethod<Map<dynamic, dynamic>>(
+        'syncActiveSessions',
+        {
+          'isStrictSessionActive': isStrictSessionActive,
+          'sessionEndEpochMs': sessionEndEpochMs,
+          'activeSchedule': activeSchedule,
+        },
+      );
+      return result?['status'] == 'success';
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<List<int>> consumePendingBootEvents() async {
+    try {
+      final result = await _channel.invokeListMethod<int>('consumePendingBootEvents');
+      return result ?? <int>[];
+    } catch (_) {
+      return <int>[];
+    }
+  }
 }

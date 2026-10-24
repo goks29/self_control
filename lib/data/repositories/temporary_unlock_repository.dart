@@ -5,5 +5,5 @@ abstract class TemporaryUnlockRepository {
   Future<TemporaryUnlock?> getActiveUnlockForPackage(String packageName);
   Future<int> createUnlock(TemporaryUnlock unlock);
   Future<void> updateUnlockStatus(int unlockId, String status);
-  Future<void> expireOutdatedUnlocks();
+  Future<List<String>> expireOutdatedUnlocks();
 }

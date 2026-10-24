@@ -1,20 +1,38 @@
 package com.example.self_control.accessibility
 
 import android.accessibilityservice.AccessibilityService
+import android.content.BroadcastReceiver
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.provider.Settings
 import android.text.TextUtils
 import android.util.Log
 import android.view.accessibility.AccessibilityEvent
+import com.example.self_control.blocking.BlockingEngine
 
 class AppMonitorService : AccessibilityService() {
+
+    private val timeChangeReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            val action = intent?.action ?: return
+            if (action == Intent.ACTION_TIME_CHANGED || action == Intent.ACTION_TIMEZONE_CHANGED) {
+                BlockingEngine.instance.onSystemTimeChanged()
+            }
+        }
+    }
 
     override fun onServiceConnected() {
         super.onServiceConnected()
         instance = this
         Log.i(TAG, "AppMonitorService connected and bound")
+
+        val filter = IntentFilter().apply {
+            addAction(Intent.ACTION_TIME_CHANGED)
+            addAction(Intent.ACTION_TIMEZONE_CHANGED)
+        }
+        registerReceiver(timeChangeReceiver, filter)
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
@@ -28,6 +46,9 @@ class AppMonitorService : AccessibilityService() {
 
     override fun onDestroy() {
         super.onDestroy()
+        try {
+            unregisterReceiver(timeChangeReceiver)
+        } catch (_: Exception) {}
         if (instance === this) {
             instance = null
         }

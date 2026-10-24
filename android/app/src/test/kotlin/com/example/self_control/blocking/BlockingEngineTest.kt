@@ -129,4 +129,54 @@ class BlockingEngineTest {
         assertEquals(1, state["temporaryUnlocksCount"])
         assertEquals("attempted", state["lastResult"])
     }
+
+    @Test
+    fun backwardClockJumpClearsActiveTemporaryUnlocks() {
+        engine.syncBlockedApps(listOf("com.instagram.android"))
+        engine.registerTemporaryUnlock("com.instagram.android", durationSeconds = 600)
+
+        fakeTime.advance(50_000L)
+        val decisionBefore = engine.evaluate("com.instagram.android")
+        assertFalse(decisionBefore.shouldBlock)
+
+        fakeTime.nowMs = 500_000L
+        val decisionAfter = engine.evaluate("com.instagram.android")
+        assertTrue(decisionAfter.shouldBlock)
+        assertFalse(engine.isTemporaryUnlockActive("com.instagram.android"))
+    }
+
+    @Test
+    fun onSystemTimeChangedClearsAllTemporaryUnlocks() {
+        engine.syncBlockedApps(listOf("com.instagram.android"))
+        engine.registerTemporaryUnlock("com.instagram.android", durationSeconds = 600)
+        assertTrue(engine.isTemporaryUnlockActive("com.instagram.android"))
+
+        engine.onSystemTimeChanged()
+        assertFalse(engine.isTemporaryUnlockActive("com.instagram.android"))
+    }
+
+    @Test
+    fun registerTemporaryUnlockWithExplicitExpirationEpochMs() {
+        engine.syncBlockedApps(listOf("com.instagram.android"))
+        val explicitExpiration = 1_500_000L
+        engine.registerTemporaryUnlock("com.instagram.android", expiresAtEpochMs = explicitExpiration)
+
+        fakeTime.nowMs = 1_499_999L
+        val decisionBefore = engine.evaluate("com.instagram.android")
+        assertFalse(decisionBefore.shouldBlock)
+
+        fakeTime.nowMs = 1_500_000L
+        val decisionAfter = engine.evaluate("com.instagram.android")
+        assertTrue(decisionAfter.shouldBlock)
+    }
+
+    @Test
+    fun revokeTemporaryUnlockImmediatelyBlocksApp() {
+        engine.syncBlockedApps(listOf("com.instagram.android"))
+        engine.registerTemporaryUnlock("com.instagram.android", durationSeconds = 600)
+        assertFalse(engine.evaluate("com.instagram.android").shouldBlock)
+
+        engine.revokeTemporaryUnlock("com.instagram.android")
+        assertTrue(engine.evaluate("com.instagram.android").shouldBlock)
+    }
 }

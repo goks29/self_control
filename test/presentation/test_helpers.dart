@@ -1,3 +1,4 @@
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:self_control/core/platform/blocking_platform_channel.dart';
@@ -12,6 +13,34 @@ import 'package:self_control/data/repositories/temporary_unlock_repository.dart'
 void setupTestFonts() {
   TestWidgetsFlutterBinding.ensureInitialized();
   GoogleFonts.config.allowRuntimeFetching = false;
+  TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+      .setMockMethodCallHandler(
+    const MethodChannel(BlockingPlatformChannel.channelName),
+    (MethodCall call) async {
+      switch (call.method) {
+        case 'getBlockingCapability':
+          return {'mode': 'standard', 'serviceStatus': 'disabled', 'limitations': <String>[]};
+        case 'getAccessibilityStatus':
+          return 'disabled';
+        case 'openAccessibilitySettings':
+          return true;
+        case 'getInstalledApps':
+          return <Map<String, dynamic>>[];
+        case 'syncBlockedApps':
+          return {'syncedCount': 0, 'status': 'success'};
+        case 'syncTemporaryUnlock':
+          return {'status': 'success'};
+        case 'revokeTemporaryUnlock':
+          return {'status': 'success'};
+        case 'syncActiveSessions':
+          return {'status': 'success'};
+        case 'consumePendingBootEvents':
+          return <int>[];
+        default:
+          return null;
+      }
+    },
+  );
 }
 
 class FakeBlockedAppRepository implements BlockedAppRepository {
@@ -185,13 +214,15 @@ class FakeTemporaryUnlockRepository implements TemporaryUnlockRepository {
   }
 
   @override
-  Future<void> expireOutdatedUnlocks() async {
+  Future<List<String>> expireOutdatedUnlocks() async {
     final now = DateTime.now();
+    final expired = <String>[];
     for (int i = 0; i < unlocks.length; i++) {
       if (unlocks[i].status == TemporaryUnlock.statusActive && unlocks[i].endAt.isBefore(now)) {
         unlocks[i] = unlocks[i].copyWith(status: TemporaryUnlock.statusExpired);
       }
     }
+    return expired;
   }
 }
 
@@ -223,4 +254,24 @@ class FakeBlockingPlatformChannel extends BlockingPlatformChannel {
     lastSyncedPackages = List.from(packageNames);
     return {'syncedCount': packageNames.length, 'status': 'success'};
   }
+
+  @override
+  Future<bool> syncTemporaryUnlock({
+    required String packageName,
+    required int durationSeconds,
+    required int expiresAtEpochMs,
+  }) async => true;
+
+  @override
+  Future<bool> revokeTemporaryUnlock(String packageName) async => true;
+
+  @override
+  Future<bool> syncActiveSessions({
+    required bool isStrictSessionActive,
+    int? sessionEndEpochMs,
+    Map<String, dynamic>? activeSchedule,
+  }) async => true;
+
+  @override
+  Future<List<int>> consumePendingBootEvents() async => <int>[];
 }

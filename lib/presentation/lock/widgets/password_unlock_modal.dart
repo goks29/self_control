@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../../core/constants/app_colors.dart';
+import '../../../core/platform/blocking_platform_channel.dart';
 import '../../../data/models/activity_log.dart';
 import '../../../data/models/temporary_unlock.dart';
 import '../../../data/repositories/activity_log_repository.dart';
@@ -24,6 +25,7 @@ class PasswordUnlockModal extends StatefulWidget {
     this.temporaryUnlockRepository,
     this.activityLogRepository,
     this.blockedAppRepository,
+    this.platformChannel,
     this.initialDurationSeconds,
   });
 
@@ -34,6 +36,7 @@ class PasswordUnlockModal extends StatefulWidget {
   final TemporaryUnlockRepository? temporaryUnlockRepository;
   final ActivityLogRepository? activityLogRepository;
   final BlockedAppRepository? blockedAppRepository;
+  final BlockingPlatformChannel? platformChannel;
   final int? initialDurationSeconds;
 
   static Future<bool?> show(
@@ -45,6 +48,7 @@ class PasswordUnlockModal extends StatefulWidget {
     TemporaryUnlockRepository? temporaryUnlockRepository,
     ActivityLogRepository? activityLogRepository,
     BlockedAppRepository? blockedAppRepository,
+    BlockingPlatformChannel? platformChannel,
     int? initialDurationSeconds,
   }) {
     return showModalBottomSheet<bool>(
@@ -63,6 +67,7 @@ class PasswordUnlockModal extends StatefulWidget {
           temporaryUnlockRepository: temporaryUnlockRepository,
           activityLogRepository: activityLogRepository,
           blockedAppRepository: blockedAppRepository,
+          platformChannel: platformChannel,
           initialDurationSeconds: initialDurationSeconds,
         ),
       ),
@@ -185,6 +190,13 @@ class _PasswordUnlockModalState extends State<PasswordUnlockModal> {
         ),
       );
     }
+
+    final channel = widget.platformChannel ?? BlockingPlatformChannel();
+    await channel.syncTemporaryUnlock(
+      packageName: packageName,
+      durationSeconds: durationSeconds,
+      expiresAtEpochMs: endAt.millisecondsSinceEpoch,
+    );
 
     await _logRepo.logEvent(
       ActivityLog(

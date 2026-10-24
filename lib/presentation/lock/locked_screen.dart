@@ -2,7 +2,10 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../core/constants/app_colors.dart';
+import '../../core/platform/blocking_platform_channel.dart';
+import '../../data/models/activity_log.dart';
 import '../../data/repositories/activity_log_repository.dart';
+import '../../data/repositories/activity_log_repository_impl.dart';
 import '../../data/repositories/blocked_app_repository.dart';
 import '../../data/repositories/settings_repository.dart';
 import '../../data/repositories/settings_repository_impl.dart';
@@ -23,6 +26,7 @@ class LockedScreen extends StatefulWidget {
     this.temporaryUnlockRepository,
     this.activityLogRepository,
     this.blockedAppRepository,
+    this.platformChannel,
     this.autoOpenModal = true,
   });
 
@@ -36,15 +40,23 @@ class LockedScreen extends StatefulWidget {
   final TemporaryUnlockRepository? temporaryUnlockRepository;
   final ActivityLogRepository? activityLogRepository;
   final BlockedAppRepository? blockedAppRepository;
+  final BlockingPlatformChannel? platformChannel;
   final bool autoOpenModal;
 
   @override
   State<LockedScreen> createState() => _LockedScreenState();
 }
 
-class _LockedScreenState extends State<LockedScreen> with SingleTickerProviderStateMixin {
+class _LockedScreenState extends State<LockedScreen>
+    with SingleTickerProviderStateMixin, WidgetsBindingObserver {
   late final SettingsRepository _settingsRepo;
   late final AnimationController _rotationController;
+
+  final Stopwatch _monotonicStopwatch = Stopwatch();
+  int? _lastObservedTimeMs;
+  int _screenOpenEpochMs = 0;
+  static const int _toleranceMs = 3000;
+  int _initialDurationSeconds = 300;
 
   Timer? _timer;
   int _remainingSeconds = 0;
@@ -57,6 +69,7 @@ class _LockedScreenState extends State<LockedScreen> with SingleTickerProviderSt
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _settingsRepo = widget.settingsRepository ?? SettingsRepositoryImpl();
 
     _rotationController = AnimationController(
@@ -69,9 +82,18 @@ class _LockedScreenState extends State<LockedScreen> with SingleTickerProviderSt
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _timer?.cancel();
+    _monotonicStopwatch.stop();
     _rotationController.dispose();
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _tickTimer();
+    }
   }
 
   Future<void> _initScreen() async {
@@ -82,10 +104,21 @@ class _LockedScreenState extends State<LockedScreen> with SingleTickerProviderSt
 
     if (widget.endAtEpochMs != null) {
       _endEpoch = widget.endAtEpochMs!;
+      _initialDurationSeconds = ((_endEpoch - _startEpoch) + 999) ~/ 1000;
     } else {
       final waitingSeconds = await _settingsRepo.getWaitingDurationSeconds();
+      _initialDurationSeconds = waitingSeconds;
       _endEpoch = _startEpoch + (waitingSeconds * 1000);
     }
+
+    if (_initialDurationSeconds <= 0) {
+      _initialDurationSeconds = 300;
+    }
+
+    _screenOpenEpochMs = now;
+    _lastObservedTimeMs = now;
+    _monotonicStopwatch.reset();
+    _monotonicStopwatch.start();
 
     if (mounted) {
       setState(() {
@@ -108,8 +141,41 @@ class _LockedScreenState extends State<LockedScreen> with SingleTickerProviderSt
       return;
     }
 
+    if (_lastObservedTimeMs != null && now < _lastObservedTimeMs! - _toleranceMs) {
+      _startEpoch = now;
+      _endEpoch = now + (_initialDurationSeconds * 1000);
+      _lastObservedTimeMs = now;
+      _screenOpenEpochMs = now;
+      _monotonicStopwatch.reset();
+      _monotonicStopwatch.start();
+      setState(() {
+        _remainingSeconds = _initialDurationSeconds;
+      });
+      _logTampering(now);
+      return;
+    }
+
+    final wallElapsedSinceOpen = now - _screenOpenEpochMs;
+    final monoElapsedSinceOpen = _monotonicStopwatch.elapsedMilliseconds;
+    if (_monotonicStopwatch.isRunning &&
+        (wallElapsedSinceOpen > monoElapsedSinceOpen + 5000) &&
+        (monoElapsedSinceOpen < (_initialDurationSeconds * 1000) - 2000)) {
+      _startEpoch = now;
+      _endEpoch = now + (_initialDurationSeconds * 1000);
+      _lastObservedTimeMs = now;
+      _screenOpenEpochMs = now;
+      _monotonicStopwatch.reset();
+      _monotonicStopwatch.start();
+      setState(() {
+        _remainingSeconds = _initialDurationSeconds;
+      });
+      _logTampering(now);
+      return;
+    }
+
+    _lastObservedTimeMs = now;
     final diffMs = _endEpoch - now;
-    final seconds = (diffMs / 1000).ceil();
+    final seconds = diffMs > 0 ? (diffMs + 999) ~/ 1000 : 0;
 
     if (seconds <= 0) {
       if (_remainingSeconds != 0) {
@@ -129,6 +195,19 @@ class _LockedScreenState extends State<LockedScreen> with SingleTickerProviderSt
     }
   }
 
+  void _logTampering(int timestampMs) {
+    final logRepo = widget.activityLogRepository ?? ActivityLogRepositoryImpl();
+    logRepo.logEvent(
+      ActivityLog(
+        appId: widget.appId,
+        packageNameSnapshot: widget.packageName ?? 'unknown.app',
+        appNameSnapshot: widget.appName ?? 'Aplikasi Dibatasi',
+        eventType: ActivityLog.eventTamperingDetected,
+        attemptedAt: DateTime.fromMillisecondsSinceEpoch(timestampMs),
+      ),
+    );
+  }
+
   Future<void> _openPasswordUnlockModal() async {
     final unlocked = await PasswordUnlockModal.show(
       context,
@@ -139,6 +218,7 @@ class _LockedScreenState extends State<LockedScreen> with SingleTickerProviderSt
       temporaryUnlockRepository: widget.temporaryUnlockRepository,
       activityLogRepository: widget.activityLogRepository,
       blockedAppRepository: widget.blockedAppRepository,
+      platformChannel: widget.platformChannel,
     );
 
     if (unlocked == true) {

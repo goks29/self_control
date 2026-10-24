@@ -8,6 +8,8 @@ import android.provider.Settings
 import com.example.self_control.apps.InstalledAppProvider
 import com.example.self_control.blocking.BlockingCapability
 import com.example.self_control.blocking.BlockingEngine
+import com.example.self_control.blocking.ScheduleRule
+import com.example.self_control.persistence.SharedPreferencesBlockingStore
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 import java.util.concurrent.ExecutorService
@@ -28,6 +30,10 @@ class BlockingMethodHandler(
             "openAccessibilitySettings" -> handleOpenAccessibilitySettings(result)
             "getInstalledApps" -> handleGetInstalledApps(result)
             "syncBlockedApps" -> handleSyncBlockedApps(call, result)
+            "syncTemporaryUnlock" -> handleSyncTemporaryUnlock(call, result)
+            "revokeTemporaryUnlock" -> handleRevokeTemporaryUnlock(call, result)
+            "syncActiveSessions" -> handleSyncActiveSessions(call, result)
+            "consumePendingBootEvents", "getPendingBootSyncs" -> handleConsumePendingBootEvents(result)
             "getCurrentBlockingState" -> handleGetCurrentBlockingState(result)
             "getLastBlockingResult" -> handleGetLastBlockingResult(result)
             else -> result.notImplemented()
@@ -94,6 +100,8 @@ class BlockingMethodHandler(
             }
 
             BlockingEngine.instance.syncBlockedApps(packages)
+            val store = SharedPreferencesBlockingStore.create(context)
+            store.saveBlockedPackages(packages)
 
             result.success(
                 mapOf(
@@ -103,6 +111,90 @@ class BlockingMethodHandler(
             )
         } catch (e: Exception) {
             result.error("SYNC_FAILED", e.message, null)
+        }
+    }
+
+    private fun handleSyncTemporaryUnlock(call: MethodCall, result: MethodChannel.Result) {
+        try {
+            val packageName = call.argument<String>("packageName")
+                ?: return result.error("INVALID_ARGUMENT", "packageName is required", null)
+            val durationSeconds = call.argument<Int>("durationSeconds") ?: 0
+            val expiresAtEpochMs = call.argument<Number>("expiresAtEpochMs")?.toLong()
+
+            val expiration = BlockingEngine.instance.registerTemporaryUnlock(
+                packageName = packageName,
+                durationSeconds = durationSeconds,
+                expiresAtEpochMs = expiresAtEpochMs
+            )
+
+            val store = SharedPreferencesBlockingStore.create(context)
+            store.saveTemporaryUnlock(packageName, expiration)
+
+            result.success(
+                mapOf(
+                    "status" to "success",
+                    "packageName" to packageName,
+                    "expiresAtEpochMs" to expiration
+                )
+            )
+        } catch (e: Exception) {
+            result.error("SYNC_UNLOCK_FAILED", e.message, null)
+        }
+    }
+
+    private fun handleRevokeTemporaryUnlock(call: MethodCall, result: MethodChannel.Result) {
+        try {
+            val packageName = call.argument<String>("packageName") ?: ""
+            BlockingEngine.instance.revokeTemporaryUnlock(packageName)
+            val store = SharedPreferencesBlockingStore.create(context)
+            store.removeTemporaryUnlock(packageName)
+            result.success(mapOf("status" to "success", "packageName" to packageName))
+        } catch (e: Exception) {
+            result.error("REVOKE_UNLOCK_FAILED", e.message, null)
+        }
+    }
+
+    private fun handleSyncActiveSessions(call: MethodCall, result: MethodChannel.Result) {
+        try {
+            val isStrict = call.argument<Boolean>("isStrictSessionActive") ?: false
+            val sessionEnd = call.argument<Number>("sessionEndEpochMs")?.toLong()
+            val schedMap = call.argument<Map<String, Any?>>("activeSchedule")
+
+            val scheduleRule = if (schedMap != null) {
+                val startMinute = (schedMap["scheduleStartMinute"] as? Number)?.toInt() ?: 0
+                val endMinute = (schedMap["scheduleEndMinute"] as? Number)?.toInt() ?: 0
+                val daysMask = (schedMap["daysMask"] as? Number)?.toInt() ?: 127
+                val isEnabled = schedMap["isEnabled"] as? Boolean ?: true
+                ScheduleRule(
+                    startMinute = startMinute,
+                    endMinute = endMinute,
+                    daysMask = daysMask,
+                    isEnabled = isEnabled
+                )
+            } else {
+                null
+            }
+
+            BlockingEngine.instance.syncActiveSessions(isStrict, sessionEnd, scheduleRule)
+            val store = SharedPreferencesBlockingStore.create(context)
+            if (sessionEnd != null) {
+                val start = System.currentTimeMillis()
+                store.saveActiveSession(start, sessionEnd, if (isStrict) "active" else "scheduled")
+            }
+
+            result.success(mapOf("status" to "success"))
+        } catch (e: Exception) {
+            result.error("SYNC_SESSION_FAILED", e.message, null)
+        }
+    }
+
+    private fun handleConsumePendingBootEvents(result: MethodChannel.Result) {
+        try {
+            val store = SharedPreferencesBlockingStore.create(context)
+            val pendingTimestamps = store.consumePendingBootSyncs()
+            result.success(pendingTimestamps)
+        } catch (e: Exception) {
+            result.success(emptyList<Long>())
         }
     }
 
