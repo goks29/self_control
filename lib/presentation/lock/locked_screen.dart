@@ -27,6 +27,7 @@ class LockedScreen extends StatefulWidget {
     this.activityLogRepository,
     this.blockedAppRepository,
     this.platformChannel,
+    this.nowMsProvider,
     this.autoOpenModal = true,
   });
 
@@ -41,6 +42,7 @@ class LockedScreen extends StatefulWidget {
   final ActivityLogRepository? activityLogRepository;
   final BlockedAppRepository? blockedAppRepository;
   final BlockingPlatformChannel? platformChannel;
+  final int Function()? nowMsProvider;
   final bool autoOpenModal;
 
   @override
@@ -96,9 +98,11 @@ class _LockedScreenState extends State<LockedScreen>
     }
   }
 
+  int _getNow() => widget.nowMsProvider?.call() ?? DateTime.now().millisecondsSinceEpoch;
+
   Future<void> _initScreen() async {
     final message = await _settingsRepo.getCustomLockMessage();
-    final now = DateTime.now().millisecondsSinceEpoch;
+    final now = _getNow();
 
     _startEpoch = widget.startAtEpochMs ?? now;
 
@@ -131,17 +135,11 @@ class _LockedScreenState extends State<LockedScreen>
   }
 
   void _tickTimer() {
-    final now = DateTime.now().millisecondsSinceEpoch;
+    final now = _getNow();
 
-    if (now < _startEpoch) {
-      final totalSeconds = ((_endEpoch - _startEpoch) / 1000).ceil();
-      setState(() {
-        _remainingSeconds = totalSeconds > 0 ? totalSeconds : 300;
-      });
-      return;
-    }
-
-    if (_lastObservedTimeMs != null && now < _lastObservedTimeMs! - _toleranceMs) {
+    final isBackwardTamper = (_lastObservedTimeMs != null && now < _lastObservedTimeMs! - _toleranceMs) ||
+        (now < _startEpoch - _toleranceMs);
+    if (isBackwardTamper) {
       _startEpoch = now;
       _endEpoch = now + (_initialDurationSeconds * 1000);
       _lastObservedTimeMs = now;

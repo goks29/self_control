@@ -14,11 +14,22 @@ class BootRecoveryController(
         const val ACTION_BOOT_COMPLETED = "android.intent.action.BOOT_COMPLETED"
         const val ACTION_QUICKBOOT_POWERON = "android.intent.action.QUICKBOOT_POWERON"
         const val ACTION_HTC_QUICKBOOT_POWERON = "com.htc.intent.action.QUICKBOOT_POWERON"
+        const val BOOT_DEDUPLICATION_WINDOW_MS = 10_000L
+
+        @Volatile
+        var lastBootHandledTimestampMs: Long = 0L
+        private val lock = Any()
 
         fun isBootAction(action: String?): Boolean {
             return action == ACTION_BOOT_COMPLETED ||
                    action == ACTION_QUICKBOOT_POWERON ||
                    action == ACTION_HTC_QUICKBOOT_POWERON
+        }
+
+        fun reset() {
+            synchronized(lock) {
+                lastBootHandledTimestampMs = 0L
+            }
         }
     }
 
@@ -29,31 +40,64 @@ class BootRecoveryController(
 
         val nowMs = timeProvider.currentTimeMillis()
 
-        val savedPackages = persistenceStore.getBlockedPackages()
+        val savedPackages = try {
+            persistenceStore.getBlockedPackages()
+        } catch (_: Exception) {
+            emptySet()
+        }
         blockingEngine.syncBlockedApps(savedPackages)
 
-        persistenceStore.clearExpiredTemporaryUnlocks(nowMs)
-        val validUnlocks = persistenceStore.getSavedTemporaryUnlocks()
+        try {
+            persistenceStore.clearExpiredTemporaryUnlocks(nowMs)
+        } catch (_: Exception) {
+        }
+
+        val validUnlocks = try {
+            persistenceStore.getSavedTemporaryUnlocks()
+        } catch (_: Exception) {
+            emptyMap()
+        }
         blockingEngine.clearExpiredUnlocks(nowMs)
         for ((pkg, expirationMs) in validUnlocks) {
-            val remainingSeconds = ((expirationMs - nowMs) / 1000L).toInt()
-            if (remainingSeconds > 0) {
+            if (expirationMs > nowMs) {
+                val remainingSeconds = maxOf(1, (((expirationMs - nowMs) + 999L) / 1000L).toInt())
                 blockingEngine.registerTemporaryUnlock(pkg, remainingSeconds, expirationMs)
             }
         }
 
         var currentSessionStatus: String? = null
-        val activeSession = persistenceStore.getActiveSession()
+        val activeSession = try {
+            persistenceStore.getActiveSession()
+        } catch (_: Exception) {
+            null
+        }
         if (activeSession != null && activeSession.status == "active") {
             if (nowMs >= activeSession.endEpochMs && activeSession.endEpochMs > 0L) {
-                persistenceStore.updateSessionStatus("completed")
+                try {
+                    persistenceStore.updateSessionStatus("completed")
+                } catch (_: Exception) {
+                }
                 currentSessionStatus = "completed"
             } else {
                 currentSessionStatus = "active"
             }
         }
 
-        persistenceStore.recordPendingBootSync(nowMs)
+        val shouldRecordSync = synchronized(lock) {
+            if (lastBootHandledTimestampMs == 0L || Math.abs(nowMs - lastBootHandledTimestampMs) >= BOOT_DEDUPLICATION_WINDOW_MS) {
+                lastBootHandledTimestampMs = nowMs
+                true
+            } else {
+                false
+            }
+        }
+
+        if (shouldRecordSync) {
+            try {
+                persistenceStore.recordPendingBootSync(nowMs)
+            } catch (_: Exception) {
+            }
+        }
 
         return BootRecoveryResult(
             handled = true,

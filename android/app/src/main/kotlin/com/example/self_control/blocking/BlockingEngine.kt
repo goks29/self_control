@@ -136,8 +136,10 @@ class BlockingEngine(
     fun isTemporaryUnlockActive(packageName: String, nowMs: Long = timeProvider.currentTimeMillis()): Boolean {
         if (lastObservedTimeMs > 0L && nowMs < lastObservedTimeMs - CLOCK_TAMPER_TOLERANCE_MS) {
             temporaryUnlocks.clear()
+            lastObservedTimeMs = nowMs
+        } else {
+            lastObservedTimeMs = maxOf(lastObservedTimeMs, nowMs)
         }
-        lastObservedTimeMs = maxOf(lastObservedTimeMs, nowMs)
 
         val expiration = temporaryUnlocks[packageName] ?: return false
         return if (nowMs < expiration) {
@@ -148,9 +150,9 @@ class BlockingEngine(
         }
     }
 
-    fun onSystemTimeChanged() {
+    fun onSystemTimeChanged(nowEpochMs: Long = timeProvider.currentTimeMillis()) {
         temporaryUnlocks.clear()
-        lastObservedTimeMs = timeProvider.currentTimeMillis()
+        lastObservedTimeMs = nowEpochMs
     }
 
     fun evaluate(packageName: String?): BlockingDecision {
@@ -158,8 +160,10 @@ class BlockingEngine(
 
         if (lastObservedTimeMs > 0L && now < lastObservedTimeMs - CLOCK_TAMPER_TOLERANCE_MS) {
             temporaryUnlocks.clear()
+            lastObservedTimeMs = now
+        } else {
+            lastObservedTimeMs = maxOf(lastObservedTimeMs, now)
         }
-        lastObservedTimeMs = maxOf(lastObservedTimeMs, now)
 
         if (packageName.isNullOrBlank()) {
             lastEvaluationResult = BlockingDecision.Allow.STATUS_NOT_REQUIRED

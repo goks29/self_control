@@ -15,8 +15,11 @@ class BootReceiver : BroadcastReceiver() {
             return
         }
 
-        val persistence = SharedPreferencesBlockingStore.create(context)
-        val controller = BootRecoveryController(persistenceStore = persistence)
-        controller.handleBoot(action)
+        try {
+            val persistence = SharedPreferencesBlockingStore.create(context)
+            val controller = BootRecoveryController(persistenceStore = persistence)
+            controller.handleBoot(action)
+        } catch (_: Exception) {
+        }
     }
 }

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:self_control/data/models/activity_log.dart';
 import 'package:self_control/presentation/lock/locked_screen.dart';
 import '../presentation/test_helpers.dart';
 
@@ -27,7 +28,7 @@ void main() {
     });
 
     testWidgets('Backward clock jump mid-session triggers tampering detection and reset', (tester) async {
-      final now = DateTime.now().millisecondsSinceEpoch;
+      int fakeNow = 1000000;
       final logRepo = FakeActivityLogRepository();
       final settingsRepo = FakeSettingsRepository();
 
@@ -36,11 +37,12 @@ void main() {
           home: LockedScreen(
             appName: 'Instagram',
             packageName: 'com.instagram.android',
-            startAtEpochMs: now,
-            endAtEpochMs: now + 300000,
+            startAtEpochMs: fakeNow,
+            endAtEpochMs: fakeNow + 300000,
             settingsRepository: settingsRepo,
             activityLogRepository: logRepo,
             autoOpenModal: false,
+            nowMsProvider: () => fakeNow,
           ),
         ),
       );
@@ -49,11 +51,15 @@ void main() {
 
       expect(find.text('05:00'), findsOneWidget);
 
+      fakeNow = 500000;
       final state = tester.state(find.byType(LockedScreen)) as dynamic;
       state.didChangeAppLifecycleState(AppLifecycleState.resumed);
       await tester.pump();
 
       expect(find.byType(LockedScreen), findsOneWidget);
+      final tamperingLogs = logRepo.logs.where((l) => l.eventType == ActivityLog.eventTamperingDetected).toList();
+      expect(tamperingLogs.isNotEmpty, isTrue);
+      expect(tamperingLogs.first.eventType, equals(ActivityLog.eventTamperingDetected));
     });
 
     testWidgets('PopScope prevents pop route and calls SystemNavigator.pop', (tester) async {

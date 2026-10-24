@@ -27,6 +27,7 @@ class BootRecoveryControllerTest {
             timeProvider = fakeTime,
             debounceFilter = DebounceFilter(thresholdMs = 1500L, timeProvider = fakeTime)
         )
+        BootRecoveryController.reset()
         fakePersistence = FakeBlockingPersistenceStore()
         controller = BootRecoveryController(
             persistenceStore = fakePersistence,
