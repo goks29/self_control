@@ -3,7 +3,15 @@ allprojects {
         google()
         mavenCentral()
     }
+    plugins.withId("java-base") {
+        extensions.findByType<JavaPluginExtension>()?.apply {
+            toolchain {
+                languageVersion.set(JavaLanguageVersion.of(17))
+            }
+        }
+    }
 }
+
 
 val newBuildDir: Directory =
     rootProject.layout.buildDirectory

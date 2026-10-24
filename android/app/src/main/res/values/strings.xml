@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="accessibility_service_name">Self-Control App Monitor</string>
+    <string name="accessibility_service_description">Self-Control memantau aplikasi yang dibuka untuk menerapkan aturan pembatasan fokus yang telah Anda pilih. Layanan ini tidak membaca isi layar atau data pribadi Anda.</string>
+</resources>
