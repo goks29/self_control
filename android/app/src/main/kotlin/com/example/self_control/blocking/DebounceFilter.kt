@@ -19,14 +19,19 @@ class DebounceFilter(
 
     fun shouldProceed(packageName: String): Boolean {
         if (packageName.isBlank()) return false
-        val now = timeProvider.currentTimeMillis()
 
         while (true) {
+            val now = timeProvider.currentTimeMillis()
             val current = stateRef.get()
             val elapsed = now - current.lastTimestampMs
 
-            if (packageName == current.lastPackage && elapsed in 0 until thresholdMs) {
-                return false
+            if (packageName == current.lastPackage) {
+                if (elapsed in 0 until thresholdMs) {
+                    return false
+                }
+                if (elapsed < 0 && -elapsed < thresholdMs) {
+                    return false
+                }
             }
 
             val next = State(lastPackage = packageName, lastTimestampMs = now)
