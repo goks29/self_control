@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../core/constants/app_colors.dart';
+import '../../data/models/activity_log.dart';
 import '../../data/repositories/activity_log_repository.dart';
 import '../../data/repositories/activity_log_repository_impl.dart';
 import '../widgets/app_button.dart';
@@ -25,6 +26,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   Map<String, int> _attemptCounts = {};
   Map<String, String> _appNames = {};
   Map<String, DateTime> _lastAttempts = {};
+  int _failedBlocksCount = 0;
 
   @override
   void initState() {
@@ -35,7 +37,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   Future<void> _loadData() async {
     setState(() => _isLoading = true);
-    final counts = await _logRepo.getAttemptCountsByPackage();
+    final counts = await _logRepo.getAttemptCountsByPackage(outcome: ActivityLog.outcomeConfirmed);
+    final outcomeCounts = await _logRepo.getOutcomeCounts();
     final logs = await _logRepo.getLogs(limit: 100);
 
     final appNames = <String, String>{};
@@ -55,6 +58,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         _attemptCounts = counts;
         _appNames = appNames;
         _lastAttempts = lastAttempts;
+        _failedBlocksCount = outcomeCounts[ActivityLog.outcomeFailed] ?? 0;
         _isLoading = false;
       });
     }
@@ -184,6 +188,39 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 ],
               ),
             ),
+            if (_failedBlocksCount > 0) ...[
+              const SizedBox(height: 12),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                decoration: BoxDecoration(
+                  color: AppColors.peach,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: AppColors.brown.withValues(alpha: 0.3),
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(
+                      Icons.info_outline,
+                      color: AppColors.brown,
+                      size: 22,
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        '$_failedBlocksCount percobaan blokir memerlukan izin pembuka latar belakang.',
+                        style: const TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w500,
+                          color: AppColors.darkGreen,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
             const SizedBox(height: 24),
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,

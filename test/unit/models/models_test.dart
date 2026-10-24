@@ -124,6 +124,36 @@ void main() {
       expect(copy.eventType, equals(ActivityLog.eventPasswordFailed));
       expect(copy, isNot(equals(log)));
     });
+
+    test('supports outcome and details serialization and defaults to confirmed', () {
+      final now = DateTime(2026, 10, 24, 10, 0);
+      final log = ActivityLog(
+        packageNameSnapshot: 'com.target.app',
+        appNameSnapshot: 'Target App',
+        eventType: ActivityLog.eventBlockedAttempt,
+        outcome: ActivityLog.outcomeFailed,
+        details: 'SecurityException: Not Allowed',
+        attemptedAt: now,
+      );
+
+      final map = log.toMap();
+      expect(map['outcome'], equals('failed'));
+      expect(map['details'], equals('SecurityException: Not Allowed'));
+
+      final fromMap = ActivityLog.fromMap(map);
+      expect(fromMap.outcome, equals(ActivityLog.outcomeFailed));
+      expect(fromMap.details, equals('SecurityException: Not Allowed'));
+
+      final legacyMap = <String, dynamic>{
+        'package_name_snapshot': 'com.legacy.app',
+        'app_name_snapshot': 'Legacy App',
+        'event_type': 'blocked_attempt',
+        'attempted_at': now.millisecondsSinceEpoch,
+      };
+      final fromLegacy = ActivityLog.fromMap(legacyMap);
+      expect(fromLegacy.outcome, equals(ActivityLog.outcomeConfirmed));
+      expect(fromLegacy.details, isNull);
+    });
   });
 
   group('AppSetting Model Tests', () {

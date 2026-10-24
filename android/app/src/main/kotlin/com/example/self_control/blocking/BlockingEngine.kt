@@ -79,6 +79,9 @@ class BlockingEngine(
     val blockedCount: Int
         get() = blockedPackagesRef.get().size
 
+    val isStrictSessionActive: Boolean
+        get() = sessionStateRef.get().isStrictSessionActive
+
     fun syncBlockedApps(packageNames: Collection<String>): Int {
         val newSet = Collections.unmodifiableSet(packageNames.filter { it.isNotBlank() }.toHashSet())
         blockedPackagesRef.set(newSet)

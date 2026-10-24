@@ -85,5 +85,56 @@ void main() {
 
       expect(find.text('Konfirmasi password tidak cocok'), findsOneWidget);
     });
+
+    testWidgets('shows integrity check and emergency reset dialog', (tester) async {
+      tester.view.physicalSize = const Size(800, 1600);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(() => tester.view.resetPhysicalSize());
+
+      final settingsRepo = FakeSettingsRepository();
+      final fakeDb = FakeAppDatabase();
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: SettingsScreen(
+            settingsRepository: settingsRepo,
+            appDatabase: fakeDb,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Pemulihan & Integritas Data'), findsOneWidget);
+      expect(find.text('Cek Integritas'), findsOneWidget);
+      expect(find.text('Reset Darurat'), findsOneWidget);
+
+      await tester.tap(find.text('Cek Integritas'));
+      await tester.pump();
+
+      expect(fakeDb.verifyIntegrityCalled, isTrue);
+      expect(find.text('Basis data sehat. Tidak ditemukan kerusakan atau pelanggaran relasi.'), findsOneWidget);
+
+      await tester.tap(find.text('Reset Darurat'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Konfirmasi Reset'), findsOneWidget);
+      expect(find.text('Batal'), findsOneWidget);
+      expect(find.text('Reset'), findsOneWidget);
+
+      await tester.tap(find.text('Batal'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Konfirmasi Reset'), findsNothing);
+      expect(fakeDb.resetToDefaultsCalled, isFalse);
+
+      await tester.tap(find.text('Reset Darurat'));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Reset'));
+      await tester.pumpAndSettle();
+
+      expect(fakeDb.resetToDefaultsCalled, isTrue);
+      expect(find.text('Seluruh pengaturan dan data berhasil direset.'), findsOneWidget);
+    });
   });
 }

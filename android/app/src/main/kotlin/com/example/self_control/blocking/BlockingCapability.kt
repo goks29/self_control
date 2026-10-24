@@ -50,18 +50,7 @@ data class BlockingCapability(
         }
 
         fun isAccessibilityServiceEnabled(context: Context): Boolean {
-            if (AppMonitorService.isRunning) {
-                return true
-            }
-
-            val enabledServices = Settings.Secure.getString(
-                context.contentResolver,
-                Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES
-            ) ?: return false
-
-            val expectedComponent = "${context.packageName}/${AppMonitorService::class.java.canonicalName}"
-            val shortComponent = "${context.packageName}/.accessibility.AppMonitorService"
-            return enabledServices.contains(expectedComponent) || enabledServices.contains(shortComponent)
+            return AppMonitorService.isAccessibilityServiceEnabled(context)
         }
     }
 }

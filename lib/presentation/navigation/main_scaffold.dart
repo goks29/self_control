@@ -5,12 +5,14 @@ import '../../data/models/activity_log.dart';
 import '../../data/repositories/activity_log_repository.dart';
 import '../../data/repositories/activity_log_repository_impl.dart';
 import '../../data/repositories/blocked_app_repository.dart';
+import '../../data/repositories/blocked_app_repository_impl.dart';
 import '../../data/repositories/settings_repository.dart';
 import '../../data/repositories/temporary_unlock_repository.dart';
 import '../../data/repositories/temporary_unlock_repository_impl.dart';
 import '../application/application_selection_screen.dart';
 import '../home/dashboard_screen.dart';
 import '../settings/settings_screen.dart';
+import '../widgets/revoked_permission_banner.dart';
 
 class MainScaffold extends StatefulWidget {
   const MainScaffold({
@@ -39,6 +41,7 @@ class _MainScaffoldState extends State<MainScaffold> with WidgetsBindingObserver
   late final BlockingPlatformChannel _platformChannel;
   late final TemporaryUnlockRepository _unlockRepo;
   late final ActivityLogRepository _logRepo;
+  bool _isAccessibilityDisabled = false;
 
   @override
   void initState() {
@@ -49,7 +52,9 @@ class _MainScaffoldState extends State<MainScaffold> with WidgetsBindingObserver
     _unlockRepo = widget.temporaryUnlockRepository ?? TemporaryUnlockRepositoryImpl();
     _logRepo = widget.activityLogRepository ?? ActivityLogRepositoryImpl();
 
+    _checkAccessibilityStatus();
     _drainBootSyncs();
+    _drainPendingActivityLogs();
     _reconcileUnlocks();
   }
 
@@ -62,8 +67,24 @@ class _MainScaffoldState extends State<MainScaffold> with WidgetsBindingObserver
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
+      _checkAccessibilityStatus();
+      _drainPendingActivityLogs();
       _reconcileUnlocks();
     }
+  }
+
+  Future<void> _checkAccessibilityStatus() async {
+    final isEnabled = await _platformChannel.isAccessibilityServiceEnabled();
+    if (mounted) {
+      setState(() {
+        _isAccessibilityDisabled = !isEnabled;
+      });
+    }
+  }
+
+  Future<void> _onFixAccessibilityPressed() async {
+    await _platformChannel.openAccessibilitySettings();
+    await _checkAccessibilityStatus();
   }
 
   Future<void> _reconcileUnlocks() async {
@@ -81,6 +102,41 @@ class _MainScaffoldState extends State<MainScaffold> with WidgetsBindingObserver
           packageNameSnapshot: 'system',
           appNameSnapshot: 'BootReceiver',
           eventType: ActivityLog.eventBootCompletedSync,
+          attemptedAt: DateTime.fromMillisecondsSinceEpoch(ts),
+        ),
+      );
+    }
+  }
+
+  Future<void> _drainPendingActivityLogs() async {
+    final rawLogs = await _platformChannel.consumePendingActivityLogs();
+    if (rawLogs.isEmpty) return;
+
+    final blockedRepo = widget.blockedAppRepository ?? BlockedAppRepositoryImpl();
+    for (final raw in rawLogs) {
+      final pkg = (raw['packageName'] as String?) ?? '';
+      final outcome = (raw['outcome'] as String?) ?? ActivityLog.outcomeConfirmed;
+      final details = raw['details'] as String?;
+      final ts = (raw['timestampMs'] as num?)?.toInt() ?? DateTime.now().millisecondsSinceEpoch;
+
+      String appName = pkg;
+      int? appId;
+      if (pkg.isNotEmpty) {
+        final app = await blockedRepo.getAppByPackageName(pkg);
+        if (app != null) {
+          appName = app.appName;
+          appId = app.id;
+        }
+      }
+
+      await _logRepo.logEvent(
+        ActivityLog(
+          appId: appId,
+          packageNameSnapshot: pkg,
+          appNameSnapshot: appName,
+          eventType: ActivityLog.eventBlockedAttempt,
+          outcome: outcome,
+          details: details,
           attemptedAt: DateTime.fromMillisecondsSinceEpoch(ts),
         ),
       );
@@ -202,16 +258,26 @@ class _MainScaffoldState extends State<MainScaffold> with WidgetsBindingObserver
           ],
         ),
       ),
-      body: IndexedStack(
-        index: _currentIndex,
+      body: Column(
         children: [
-          DashboardScreen(
-            activityLogRepository: widget.activityLogRepository,
-            onNavigateToApplications: () => _onTabSelected(1),
-          ),
-          ApplicationSelectionScreen(
-            blockedAppRepository: widget.blockedAppRepository,
-            platformChannel: widget.platformChannel,
+          if (_isAccessibilityDisabled)
+            RevokedPermissionBanner(
+              onFixPressed: _onFixAccessibilityPressed,
+            ),
+          Expanded(
+            child: IndexedStack(
+              index: _currentIndex,
+              children: [
+                DashboardScreen(
+                  activityLogRepository: widget.activityLogRepository,
+                  onNavigateToApplications: () => _onTabSelected(1),
+                ),
+                ApplicationSelectionScreen(
+                  blockedAppRepository: widget.blockedAppRepository,
+                  platformChannel: widget.platformChannel,
+                ),
+              ],
+            ),
           ),
         ],
       ),

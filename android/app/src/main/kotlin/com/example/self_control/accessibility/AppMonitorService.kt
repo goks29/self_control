@@ -6,11 +6,14 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.os.PowerManager
 import android.provider.Settings
 import android.text.TextUtils
 import android.util.Log
 import android.view.accessibility.AccessibilityEvent
 import com.example.self_control.blocking.BlockingEngine
+import com.example.self_control.persistence.SharedPreferencesBlockingStore
+import com.example.self_control.recovery.BootRecoveryController
 
 class AppMonitorService : AccessibilityService() {
 
@@ -23,16 +26,37 @@ class AppMonitorService : AccessibilityService() {
         }
     }
 
+    private val batteryReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            val action = intent?.action ?: return
+            if (action == Intent.ACTION_BATTERY_LOW || action == PowerManager.ACTION_POWER_SAVE_MODE_CHANGED) {
+                BlockingEngine.instance.clearExpiredUnlocks(System.currentTimeMillis())
+            }
+        }
+    }
+
     override fun onServiceConnected() {
         super.onServiceConnected()
         instance = this
         Log.i(TAG, "AppMonitorService connected and bound")
+
+        try {
+            val store = SharedPreferencesBlockingStore.create(this)
+            BootRecoveryController.restoreFromPersistentStore(store)
+        } catch (_: Exception) {}
 
         val filter = IntentFilter().apply {
             addAction(Intent.ACTION_TIME_CHANGED)
             addAction(Intent.ACTION_TIMEZONE_CHANGED)
         }
         registerReceiver(timeChangeReceiver, filter)
+
+        val batteryFilter = IntentFilter().apply {
+            addAction(Intent.ACTION_BATTERY_LOW)
+            addAction(Intent.ACTION_BATTERY_OKAY)
+            addAction(PowerManager.ACTION_POWER_SAVE_MODE_CHANGED)
+        }
+        registerReceiver(batteryReceiver, batteryFilter)
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
@@ -48,6 +72,9 @@ class AppMonitorService : AccessibilityService() {
         super.onDestroy()
         try {
             unregisterReceiver(timeChangeReceiver)
+        } catch (_: Exception) {}
+        try {
+            unregisterReceiver(batteryReceiver)
         } catch (_: Exception) {}
         if (instance === this) {
             instance = null

@@ -32,6 +32,19 @@ class BlockingPlatformChannel {
     return 'disabled';
   }
 
+  Future<bool> isAccessibilityServiceEnabled() async {
+    try {
+      final result = await _channel.invokeMethod<bool>('isAccessibilityServiceEnabled');
+      if (result != null) {
+        return result;
+      }
+      final status = await getAccessibilityStatus();
+      return status == 'enabled';
+    } catch (_) {
+      return false;
+    }
+  }
+
   Future<bool> openAccessibilitySettings() async {
     try {
       final result = await _channel.invokeMethod<bool>('openAccessibilitySettings');
@@ -149,5 +162,33 @@ class BlockingPlatformChannel {
     } catch (_) {
       return <int>[];
     }
+  }
+
+  Future<bool> isIgnoringBatteryOptimizations() async {
+    try {
+      final result = await _channel.invokeMethod<bool>('isIgnoringBatteryOptimizations');
+      return result ?? false;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<bool> requestIgnoreBatteryOptimizations() async {
+    try {
+      final result = await _channel.invokeMethod<bool>('requestIgnoreBatteryOptimizations');
+      return result ?? false;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<List<Map<String, dynamic>>> consumePendingActivityLogs() async {
+    try {
+      final result = await _channel.invokeListMethod<Map<dynamic, dynamic>>('consumePendingActivityLogs');
+      if (result != null) {
+        return result.map((item) => Map<String, dynamic>.from(item)).toList();
+      }
+    } catch (_) {}
+    return <Map<String, dynamic>>[];
   }
 }

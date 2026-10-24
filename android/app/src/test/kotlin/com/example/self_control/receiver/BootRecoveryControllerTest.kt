@@ -126,4 +126,50 @@ class BootRecoveryControllerTest {
         assertFalse(decision.shouldBlock)
         assertEquals(BlockingDecision.Allow.REASON_TEMPORARY_UNLOCK, decision.reason)
     }
+
+    @Test
+    fun restoreFromPersistentStoreRestoresStateWithoutBootAction() {
+        fakePersistence.saveBlockedPackages(listOf("com.twitter.android", "com.facebook.katana"))
+        fakePersistence.saveTemporaryUnlock("com.twitter.android", expirationMs = 1_500_000L)
+        fakePersistence.saveActiveSession(500_000L, 2_000_000L, "active")
+
+        val restoredCount = BootRecoveryController.restoreFromPersistentStore(
+            persistenceStore = fakePersistence,
+            blockingEngine = engine,
+            timeProvider = fakeTime
+        )
+
+        assertEquals(2, restoredCount)
+        assertTrue(engine.getBlockedPackages().contains("com.twitter.android"))
+        assertTrue(engine.getBlockedPackages().contains("com.facebook.katana"))
+        assertTrue(engine.isTemporaryUnlockActive("com.twitter.android"))
+        assertTrue(engine.isStrictSessionActive)
+    }
+
+    @Test
+    fun pendingActivityLogsRecordedAndConsumed() {
+        fakePersistence.recordPendingActivityLog(
+            packageName = "com.instagram.android",
+            outcome = "confirmed",
+            details = "lock_screen_launched",
+            timestampMs = 1_000_000L
+        )
+        fakePersistence.recordPendingActivityLog(
+            packageName = "com.tiktok.android",
+            outcome = "failed",
+            details = "ActivityNotFoundException",
+            timestampMs = 1_005_000L
+        )
+
+        val logs = fakePersistence.consumePendingActivityLogs()
+        assertEquals(2, logs.size)
+        assertEquals("com.instagram.android", logs[0]["packageName"])
+        assertEquals("confirmed", logs[0]["outcome"])
+        assertEquals("lock_screen_launched", logs[0]["details"])
+        assertEquals("com.tiktok.android", logs[1]["packageName"])
+        assertEquals("failed", logs[1]["outcome"])
+
+        val drained = fakePersistence.consumePendingActivityLogs()
+        assertTrue(drained.isEmpty())
+    }
 }

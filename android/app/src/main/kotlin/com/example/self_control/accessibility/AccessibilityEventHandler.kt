@@ -7,6 +7,7 @@ import android.view.accessibility.AccessibilityEvent
 import android.view.inputmethod.InputMethodManager
 import com.example.self_control.blocking.BlockingDecision
 import com.example.self_control.blocking.BlockingEngine
+import com.example.self_control.persistence.SharedPreferencesBlockingStore
 
 object AccessibilityEventHandler {
 
@@ -45,6 +46,17 @@ object AccessibilityEventHandler {
         val decision = BlockingEngine.evaluate(packageName)
         if (decision is BlockingDecision.Block && decision.shouldBlock) {
             LockScreenLauncher.launchLockScreen(context, decision)
+        } else if (decision is BlockingDecision.Allow && decision.reason == BlockingDecision.Allow.REASON_TEMPORARY_UNLOCK) {
+            try {
+                val store = SharedPreferencesBlockingStore.create(context)
+                store.recordPendingActivityLog(
+                    packageName,
+                    BlockingDecision.Allow.STATUS_NOT_REQUIRED,
+                    "temporary_unlock_active",
+                    decision.timestamp
+                )
+            } catch (_: Exception) {
+            }
         }
     }
 

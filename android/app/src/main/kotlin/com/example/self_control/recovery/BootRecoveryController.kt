@@ -31,6 +31,60 @@ class BootRecoveryController(
                 lastBootHandledTimestampMs = 0L
             }
         }
+
+        fun restoreFromPersistentStore(
+            persistenceStore: BlockingPersistenceStore,
+            blockingEngine: BlockingEngine = BlockingEngine.instance,
+            timeProvider: TimeProvider = SystemTimeProvider
+        ): Int {
+            val nowMs = timeProvider.currentTimeMillis()
+            val savedPackages = try {
+                persistenceStore.getBlockedPackages()
+            } catch (_: Exception) {
+                emptySet()
+            }
+            blockingEngine.syncBlockedApps(savedPackages)
+
+            try {
+                persistenceStore.clearExpiredTemporaryUnlocks(nowMs)
+            } catch (_: Exception) {
+            }
+
+            val validUnlocks = try {
+                persistenceStore.getSavedTemporaryUnlocks()
+            } catch (_: Exception) {
+                emptyMap()
+            }
+            blockingEngine.clearExpiredUnlocks(nowMs)
+            for ((pkg, expirationMs) in validUnlocks) {
+                if (expirationMs > nowMs) {
+                    val remainingSeconds = maxOf(1, (((expirationMs - nowMs) + 999L) / 1000L).toInt())
+                    blockingEngine.registerTemporaryUnlock(pkg, remainingSeconds, expirationMs)
+                }
+            }
+
+            val activeSession = try {
+                persistenceStore.getActiveSession()
+            } catch (_: Exception) {
+                null
+            }
+            if (activeSession != null && activeSession.status == "active") {
+                if (nowMs >= activeSession.endEpochMs && activeSession.endEpochMs > 0L) {
+                    try {
+                        persistenceStore.updateSessionStatus("completed")
+                    } catch (_: Exception) {
+                    }
+                } else {
+                    blockingEngine.syncActiveSessions(
+                        isStrictSessionActive = true,
+                        sessionEndEpochMs = activeSession.endEpochMs,
+                        scheduleRule = null
+                    )
+                }
+            }
+
+            return savedPackages.size
+        }
     }
 
     fun handleBoot(action: String?): BootRecoveryResult {

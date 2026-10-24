@@ -7,11 +7,15 @@ import 'package:self_control/data/models/blocked_app.dart';
 import 'package:self_control/data/models/temporary_unlock.dart';
 import 'package:self_control/data/repositories/activity_log_repository.dart';
 import 'package:self_control/data/repositories/blocked_app_repository.dart';
+import 'package:self_control/data/database/app_database.dart';
 import 'package:self_control/data/repositories/settings_repository.dart';
 import 'package:self_control/data/repositories/temporary_unlock_repository.dart';
+import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 void setupTestFonts() {
   TestWidgetsFlutterBinding.ensureInitialized();
+  sqfliteFfiInit();
+  databaseFactory = databaseFactoryFfi;
   GoogleFonts.config.allowRuntimeFetching = false;
   TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
       .setMockMethodCallHandler(
@@ -107,12 +111,23 @@ class FakeActivityLogRepository implements ActivityLogRepository {
   }
 
   @override
-  Future<Map<String, int>> getAttemptCountsByPackage() async {
+  Future<Map<String, int>> getAttemptCountsByPackage({String? outcome = ActivityLog.outcomeConfirmed}) async {
     final counts = <String, int>{};
     for (final log in logs) {
       if (log.eventType == ActivityLog.eventBlockedAttempt) {
-        counts[log.packageNameSnapshot] = (counts[log.packageNameSnapshot] ?? 0) + 1;
+        if (outcome == null || log.outcome == outcome) {
+          counts[log.packageNameSnapshot] = (counts[log.packageNameSnapshot] ?? 0) + 1;
+        }
       }
+    }
+    return counts;
+  }
+
+  @override
+  Future<Map<String, int>> getOutcomeCounts() async {
+    final counts = <String, int>{};
+    for (final log in logs) {
+      counts[log.outcome] = (counts[log.outcome] ?? 0) + 1;
     }
     return counts;
   }
@@ -273,5 +288,60 @@ class FakeBlockingPlatformChannel extends BlockingPlatformChannel {
   }) async => true;
 
   @override
+  Future<bool> isAccessibilityServiceEnabled() async => accessibilityStatus == 'enabled';
+
+  @override
+  Future<bool> isIgnoringBatteryOptimizations() async => true;
+
+  @override
+  Future<bool> requestIgnoreBatteryOptimizations() async => true;
+
+  List<Map<String, dynamic>> pendingActivityLogs = [];
+
+  @override
+  Future<List<Map<String, dynamic>>> consumePendingActivityLogs() async {
+    final copy = List<Map<String, dynamic>>.from(pendingActivityLogs);
+    pendingActivityLogs.clear();
+    return copy;
+  }
+
+  @override
   Future<List<int>> consumePendingBootEvents() async => <int>[];
 }
+
+class DummyDatabase implements Database {
+  @override
+  dynamic noSuchMethod(Invocation invocation) => null;
+}
+
+class FakeAppDatabase extends AppDatabase {
+  FakeAppDatabase({this.integrityResult});
+
+  final DatabaseIntegrityResult? integrityResult;
+  bool verifyIntegrityCalled = false;
+  bool resetToDefaultsCalled = false;
+
+  @override
+  Future<DatabaseIntegrityResult> verifyIntegrity({
+    bool full = false,
+    Database? targetDb,
+  }) async {
+    verifyIntegrityCalled = true;
+    return integrityResult ??
+        const DatabaseIntegrityResult(
+          isHealthy: true,
+          isIntegrityOk: true,
+          isForeignKeyOk: true,
+        );
+  }
+
+  @override
+  Future<Database> resetToDefaults({
+    String? customPath,
+    DatabaseFactory? factory,
+  }) async {
+    resetToDefaultsCalled = true;
+    return DummyDatabase();
+  }
+}
+

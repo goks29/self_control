@@ -1,12 +1,30 @@
+import 'dart:io';
 import 'package:path/path.dart';
 import 'package:sqflite/sqflite.dart';
+import '../../core/platform/blocking_platform_channel.dart';
+
+class DatabaseIntegrityResult {
+  final bool isHealthy;
+  final bool isIntegrityOk;
+  final bool isForeignKeyOk;
+  final List<String> integrityErrors;
+  final List<String> foreignKeyViolations;
+
+  const DatabaseIntegrityResult({
+    required this.isHealthy,
+    required this.isIntegrityOk,
+    required this.isForeignKeyOk,
+    this.integrityErrors = const [],
+    this.foreignKeyViolations = const [],
+  });
+}
 
 class AppDatabase {
-  AppDatabase._internal();
-  static final AppDatabase instance = AppDatabase._internal();
+  AppDatabase();
+  static final AppDatabase instance = AppDatabase();
 
   static const String dbName = 'self_control.db';
-  static const int dbVersion = 1;
+  static const int dbVersion = 2;
 
   static const String tableBlockedApps = 'blocked_apps';
   static const String tableBlockRules = 'block_rules';
@@ -33,6 +51,7 @@ class AppDatabase {
   Future<Database> initDatabase({
     String? customPath,
     DatabaseFactory? factory,
+    bool enableAutoRecovery = true,
   }) async {
     final String path;
     if (customPath != null) {
@@ -43,16 +62,30 @@ class AppDatabase {
     }
 
     final dbFactory = factory ?? _customFactory ?? databaseFactory;
-    _database = await dbFactory.openDatabase(
-      path,
-      options: OpenDatabaseOptions(
-        version: dbVersion,
-        onConfigure: _onConfigure,
-        onCreate: _onCreate,
-        onUpgrade: _onUpgrade,
-      ),
-    );
-    return _database!;
+    try {
+      _database = await dbFactory.openDatabase(
+        path,
+        options: OpenDatabaseOptions(
+          version: dbVersion,
+          onConfigure: _onConfigure,
+          onCreate: _onCreate,
+          onUpgrade: _onUpgrade,
+        ),
+      );
+      final check = await verifyIntegrity(full: false, targetDb: _database);
+      if (!check.isHealthy) {
+        throw StateError('Database integrity check failed');
+      }
+      return _database!;
+    } catch (e) {
+      if (enableAutoRecovery) {
+        return performFailsafeRecovery(
+          customPath: path,
+          factory: dbFactory,
+        );
+      }
+      rethrow;
+    }
   }
 
   Future<void> _onConfigure(Database db) async {
@@ -129,6 +162,8 @@ class AppDatabase {
         package_name_snapshot TEXT NOT NULL,
         app_name_snapshot TEXT NOT NULL,
         event_type TEXT NOT NULL,
+        outcome TEXT NOT NULL DEFAULT 'confirmed',
+        details TEXT,
         attempted_at INTEGER NOT NULL,
         FOREIGN KEY (app_id) REFERENCES $tableBlockedApps(id) ON DELETE SET NULL,
         FOREIGN KEY (session_id) REFERENCES $tableBlockSessions(id) ON DELETE SET NULL
@@ -145,6 +180,7 @@ class AppDatabase {
 
     batch.execute('CREATE INDEX idx_logs_attempted_at ON $tableActivityLogs(attempted_at);');
     batch.execute('CREATE INDEX idx_logs_package_time ON $tableActivityLogs(package_name_snapshot, attempted_at);');
+    batch.execute('CREATE INDEX idx_logs_outcome ON $tableActivityLogs(outcome);');
     batch.execute('CREATE INDEX idx_sessions_status ON $tableBlockSessions(status);');
     batch.execute('CREATE INDEX idx_unlocks_app_status ON $tableTemporaryUnlocks(app_id, status);');
 
@@ -178,7 +214,151 @@ class AppDatabase {
     await batch.commit(noResult: true);
   }
 
-  Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {}
+  Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
+    if (oldVersion < 2) {
+      await db.execute('ALTER TABLE $tableActivityLogs ADD COLUMN outcome TEXT NOT NULL DEFAULT "confirmed";');
+      await db.execute('ALTER TABLE $tableActivityLogs ADD COLUMN details TEXT;');
+      await db.execute('CREATE INDEX IF NOT EXISTS idx_logs_outcome ON $tableActivityLogs(outcome);');
+    }
+  }
+
+  Future<DatabaseIntegrityResult> verifyIntegrity({
+    bool full = false,
+    Database? targetDb,
+  }) async {
+    final activeDb = targetDb ?? (await database);
+    if (!full) {
+      final quickCheck = await activeDb.rawQuery('PRAGMA quick_check;');
+      final firstRow = quickCheck.isNotEmpty ? quickCheck.first : <String, dynamic>{};
+      final status = firstRow.values.isNotEmpty ? firstRow.values.first.toString() : '';
+      final isOk = status.toLowerCase() == 'ok';
+      return DatabaseIntegrityResult(
+        isHealthy: isOk,
+        isIntegrityOk: isOk,
+        isForeignKeyOk: true,
+        integrityErrors: isOk ? const [] : [status],
+      );
+    }
+
+    final integrityRows = await activeDb.rawQuery('PRAGMA integrity_check;');
+    final integrityErrors = <String>[];
+    for (final row in integrityRows) {
+      final val = row.values.isNotEmpty ? row.values.first.toString() : '';
+      if (val.toLowerCase() != 'ok') {
+        integrityErrors.add(val);
+      }
+    }
+
+    final fkRows = await activeDb.rawQuery('PRAGMA foreign_key_check;');
+    final fkViolations = <String>[];
+    for (final row in fkRows) {
+      fkViolations.add(row.toString());
+    }
+
+    final isIntegrityOk = integrityErrors.isEmpty;
+    final isForeignKeyOk = fkViolations.isEmpty;
+    return DatabaseIntegrityResult(
+      isHealthy: isIntegrityOk && isForeignKeyOk,
+      isIntegrityOk: isIntegrityOk,
+      isForeignKeyOk: isForeignKeyOk,
+      integrityErrors: integrityErrors,
+      foreignKeyViolations: fkViolations,
+    );
+  }
+
+  void backupCorruptFiles(String dbPath, int timestamp) {
+    if (dbPath != inMemoryDatabasePath && !dbPath.startsWith(':memory:')) {
+      final mainFile = File(dbPath);
+      if (mainFile.existsSync()) {
+        mainFile.renameSync('$dbPath.corrupt.$timestamp');
+      }
+      final walFile = File('$dbPath-wal');
+      if (walFile.existsSync()) {
+        walFile.renameSync('$dbPath-wal.corrupt.$timestamp');
+      }
+      final journalFile = File('$dbPath-journal');
+      if (journalFile.existsSync()) {
+        journalFile.renameSync('$dbPath-journal.corrupt.$timestamp');
+      }
+      final shmFile = File('$dbPath-shm');
+      if (shmFile.existsSync()) {
+        try {
+          shmFile.deleteSync();
+        } catch (_) {}
+      }
+    }
+  }
+
+  Future<Database> performFailsafeRecovery({
+    String? customPath,
+    DatabaseFactory? factory,
+  }) async {
+    await close();
+    final String path;
+    if (customPath != null) {
+      path = customPath;
+    } else {
+      final databasesPath = await getDatabasesPath();
+      path = join(databasesPath, dbName);
+    }
+    final timestamp = DateTime.now().toUtc().millisecondsSinceEpoch;
+    backupCorruptFiles(path, timestamp);
+
+    final db = await initDatabase(
+      customPath: path,
+      factory: factory,
+      enableAutoRecovery: false,
+    );
+
+    try {
+      await db.insert(tableActivityLogs, {
+        'package_name_snapshot': 'system',
+        'app_name_snapshot': 'AppDatabase',
+        'event_type': 'failsafe_recovery',
+        'outcome': 'confirmed',
+        'details': 'database_recreated_after_corruption',
+        'attempted_at': timestamp,
+      });
+    } catch (_) {}
+
+    try {
+      final channel = BlockingPlatformChannel();
+      await channel.syncBlockedApps([]);
+      await channel.syncActiveSessions(isStrictSessionActive: false);
+    } catch (_) {}
+
+    return db;
+  }
+
+  Future<Database> resetToDefaults({
+    String? customPath,
+    DatabaseFactory? factory,
+  }) async {
+    await close();
+    final String path;
+    if (customPath != null) {
+      path = customPath;
+    } else {
+      final databasesPath = await getDatabasesPath();
+      path = join(databasesPath, dbName);
+    }
+    final dbFactory = factory ?? _customFactory ?? databaseFactory;
+    await dbFactory.deleteDatabase(path);
+
+    final db = await initDatabase(
+      customPath: path,
+      factory: factory,
+      enableAutoRecovery: false,
+    );
+
+    try {
+      final channel = BlockingPlatformChannel();
+      await channel.syncBlockedApps([]);
+      await channel.syncActiveSessions(isStrictSessionActive: false);
+    } catch (_) {}
+
+    return db;
+  }
 
   Future<void> close() async {
     if (_database != null && _database!.isOpen) {

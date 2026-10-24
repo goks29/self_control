@@ -7,6 +7,13 @@ class ActivityLog {
   static const String eventBlockEnded = 'block_ended';
   static const String eventTamperingDetected = 'tampering_detected';
   static const String eventBootCompletedSync = 'boot_completed_sync';
+  static const String eventFailsafeRecovery = 'failsafe_recovery';
+
+  static const String outcomeNotRequired = 'not_required';
+  static const String outcomeAttempted = 'attempted';
+  static const String outcomeConfirmed = 'confirmed';
+  static const String outcomeFailed = 'failed';
+  static const String outcomeUnknown = 'unknown';
 
   final int? id;
   final int? appId;
@@ -14,6 +21,8 @@ class ActivityLog {
   final String packageNameSnapshot;
   final String appNameSnapshot;
   final String eventType;
+  final String outcome;
+  final String? details;
   final DateTime attemptedAt;
 
   const ActivityLog({
@@ -23,6 +32,8 @@ class ActivityLog {
     required this.packageNameSnapshot,
     required this.appNameSnapshot,
     required this.eventType,
+    this.outcome = outcomeConfirmed,
+    this.details,
     required this.attemptedAt,
   });
 
@@ -33,6 +44,8 @@ class ActivityLog {
       'package_name_snapshot': packageNameSnapshot,
       'app_name_snapshot': appNameSnapshot,
       'event_type': eventType,
+      'outcome': outcome,
+      'details': details,
       'attempted_at': attemptedAt.millisecondsSinceEpoch,
     };
     if (id != null) {
@@ -49,6 +62,8 @@ class ActivityLog {
       packageNameSnapshot: map['package_name_snapshot'] as String,
       appNameSnapshot: map['app_name_snapshot'] as String,
       eventType: map['event_type'] as String,
+      outcome: (map['outcome'] as String?) ?? outcomeConfirmed,
+      details: map['details'] as String?,
       attemptedAt: DateTime.fromMillisecondsSinceEpoch(map['attempted_at'] as int),
     );
   }
@@ -60,6 +75,8 @@ class ActivityLog {
     String? packageNameSnapshot,
     String? appNameSnapshot,
     String? eventType,
+    String? outcome,
+    String? details,
     DateTime? attemptedAt,
   }) {
     return ActivityLog(
@@ -69,6 +86,8 @@ class ActivityLog {
       packageNameSnapshot: packageNameSnapshot ?? this.packageNameSnapshot,
       appNameSnapshot: appNameSnapshot ?? this.appNameSnapshot,
       eventType: eventType ?? this.eventType,
+      outcome: outcome ?? this.outcome,
+      details: details ?? this.details,
       attemptedAt: attemptedAt ?? this.attemptedAt,
     );
   }
@@ -84,6 +103,8 @@ class ActivityLog {
           packageNameSnapshot == other.packageNameSnapshot &&
           appNameSnapshot == other.appNameSnapshot &&
           eventType == other.eventType &&
+          outcome == other.outcome &&
+          details == other.details &&
           attemptedAt.millisecondsSinceEpoch == other.attemptedAt.millisecondsSinceEpoch;
 
   @override
@@ -94,10 +115,12 @@ class ActivityLog {
       packageNameSnapshot.hashCode ^
       appNameSnapshot.hashCode ^
       eventType.hashCode ^
+      outcome.hashCode ^
+      details.hashCode ^
       attemptedAt.millisecondsSinceEpoch.hashCode;
 
   @override
   String toString() {
-    return 'ActivityLog(id: $id, pkg: $packageNameSnapshot, app: $appNameSnapshot, event: $eventType, at: $attemptedAt)';
+    return 'ActivityLog(id: $id, pkg: $packageNameSnapshot, app: $appNameSnapshot, event: $eventType, outcome: $outcome, details: $details, at: $attemptedAt)';
   }
 }

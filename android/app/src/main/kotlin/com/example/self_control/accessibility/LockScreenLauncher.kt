@@ -8,6 +8,7 @@ import android.os.Build
 import com.example.self_control.MainActivity
 import com.example.self_control.blocking.BlockingDecision
 import com.example.self_control.blocking.BlockingEngine
+import com.example.self_control.persistence.SharedPreferencesBlockingStore
 
 object LockScreenLauncher {
 
@@ -52,16 +53,44 @@ object LockScreenLauncher {
             } else {
                 context.startActivity(intent)
             }
-            engine.lastEvaluationResult = BlockingDecision.Block.STATUS_ATTEMPTED
+            engine.lastEvaluationResult = BlockingDecision.Block.STATUS_CONFIRMED
+            val store = SharedPreferencesBlockingStore.create(context)
+            store.recordPendingActivityLog(
+                decision.packageName,
+                BlockingDecision.Block.STATUS_CONFIRMED,
+                "lock_screen_launched",
+                decision.timestamp
+            )
             true
         } catch (e: ActivityNotFoundException) {
             engine.lastEvaluationResult = BlockingDecision.Block.STATUS_FAILED
+            val store = SharedPreferencesBlockingStore.create(context)
+            store.recordPendingActivityLog(
+                decision.packageName,
+                BlockingDecision.Block.STATUS_FAILED,
+                "${e.javaClass.simpleName}: ${e.message}",
+                decision.timestamp
+            )
             false
         } catch (e: SecurityException) {
             engine.lastEvaluationResult = BlockingDecision.Block.STATUS_FAILED
+            val store = SharedPreferencesBlockingStore.create(context)
+            store.recordPendingActivityLog(
+                decision.packageName,
+                BlockingDecision.Block.STATUS_FAILED,
+                "${e.javaClass.simpleName}: ${e.message}",
+                decision.timestamp
+            )
             false
         } catch (e: Exception) {
             engine.lastEvaluationResult = BlockingDecision.Block.STATUS_FAILED
+            val store = SharedPreferencesBlockingStore.create(context)
+            store.recordPendingActivityLog(
+                decision.packageName,
+                BlockingDecision.Block.STATUS_FAILED,
+                "${e.javaClass.simpleName}: ${e.message}",
+                decision.timestamp
+            )
             false
         }
     }

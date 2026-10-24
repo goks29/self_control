@@ -15,6 +15,14 @@ interface BlockingPersistenceStore {
     fun saveTemporaryUnlock(packageName: String, expirationMs: Long)
     fun removeTemporaryUnlock(packageName: String)
     fun clearExpiredTemporaryUnlocks(nowMs: Long)
+
+    fun recordPendingActivityLog(
+        packageName: String,
+        outcome: String,
+        details: String?,
+        timestampMs: Long
+    )
+    fun consumePendingActivityLogs(): List<Map<String, Any?>>
 }
 
 data class SessionData(

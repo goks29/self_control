@@ -2,6 +2,7 @@ package com.example.self_control.persistence
 
 import android.content.Context
 import android.content.SharedPreferences
+import org.json.JSONArray
 import org.json.JSONObject
 
 class SharedPreferencesBlockingStore(
@@ -16,6 +17,8 @@ class SharedPreferencesBlockingStore(
         const val KEY_SESSION_STATUS = "active_session_status"
         const val KEY_SESSION_JSON = "active_session_json"
         const val KEY_PENDING_BOOT_SYNCS = "pending_boot_syncs"
+        const val KEY_PENDING_ACTIVITY_LOGS = "pending_activity_logs_json"
+        const val MAX_PENDING_LOGS = 200
         const val KEY_UNLOCK_PREFIX = "temp_unlock_"
         const val KEY_UNLOCKS_JSON = "temporary_unlocks_json"
 
@@ -176,6 +179,61 @@ class SharedPreferencesBlockingStore(
             }
             editor.apply()
         } catch (_: Exception) {
+        }
+    }
+
+    @Synchronized
+    override fun recordPendingActivityLog(
+        packageName: String,
+        outcome: String,
+        details: String?,
+        timestampMs: Long
+    ) {
+        try {
+            val jsonStr = prefs.getString(KEY_PENDING_ACTIVITY_LOGS, null)
+            val array = if (jsonStr != null) JSONArray(jsonStr) else JSONArray()
+            val item = JSONObject().apply {
+                put("packageName", packageName)
+                put("outcome", outcome)
+                if (details != null) put("details", details)
+                put("timestampMs", timestampMs)
+            }
+            if (array.length() >= MAX_PENDING_LOGS) {
+                val trimmed = JSONArray()
+                for (i in (array.length() - MAX_PENDING_LOGS + 1) until array.length()) {
+                    trimmed.put(array.get(i))
+                }
+                trimmed.put(item)
+                prefs.edit().putString(KEY_PENDING_ACTIVITY_LOGS, trimmed.toString()).apply()
+            } else {
+                array.put(item)
+                prefs.edit().putString(KEY_PENDING_ACTIVITY_LOGS, array.toString()).apply()
+            }
+        } catch (_: Exception) {
+        }
+    }
+
+    @Synchronized
+    override fun consumePendingActivityLogs(): List<Map<String, Any?>> {
+        return try {
+            val jsonStr = prefs.getString(KEY_PENDING_ACTIVITY_LOGS, null) ?: return emptyList()
+            prefs.edit().remove(KEY_PENDING_ACTIVITY_LOGS).apply()
+            val array = JSONArray(jsonStr)
+            val result = mutableListOf<Map<String, Any?>>()
+            for (i in 0 until array.length()) {
+                val obj = array.getJSONObject(i)
+                val map = mutableMapOf<String, Any?>()
+                map["packageName"] = obj.optString("packageName", "")
+                map["outcome"] = obj.optString("outcome", "")
+                if (obj.has("details")) {
+                    map["details"] = obj.optString("details")
+                }
+                map["timestampMs"] = obj.optLong("timestampMs", 0L)
+                result.add(map)
+            }
+            result
+        } catch (_: Exception) {
+            emptyList()
         }
     }
 }

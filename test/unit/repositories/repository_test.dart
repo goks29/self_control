@@ -273,6 +273,51 @@ void main() {
       final remainingLogs = await repository.getLogs();
       expect(remainingLogs, isEmpty);
     });
+
+    test('computes attempt counts filtered by outcome and aggregates outcome counts', () async {
+      final now = DateTime.now();
+
+      await repository.logEvent(
+        ActivityLog(
+          packageNameSnapshot: 'com.social.app',
+          appNameSnapshot: 'Social App',
+          eventType: ActivityLog.eventBlockedAttempt,
+          outcome: ActivityLog.outcomeConfirmed,
+          attemptedAt: now,
+        ),
+      );
+      await repository.logEvent(
+        ActivityLog(
+          packageNameSnapshot: 'com.social.app',
+          appNameSnapshot: 'Social App',
+          eventType: ActivityLog.eventBlockedAttempt,
+          outcome: ActivityLog.outcomeFailed,
+          details: 'ActivityNotFoundException',
+          attemptedAt: now.add(const Duration(minutes: 1)),
+        ),
+      );
+      await repository.logEvent(
+        ActivityLog(
+          packageNameSnapshot: 'com.social.app',
+          appNameSnapshot: 'Social App',
+          eventType: ActivityLog.eventBlockedAttempt,
+          outcome: ActivityLog.outcomeNotRequired,
+          details: 'temporary_unlock_active',
+          attemptedAt: now.add(const Duration(minutes: 2)),
+        ),
+      );
+
+      final confirmedCounts = await repository.getAttemptCountsByPackage(outcome: ActivityLog.outcomeConfirmed);
+      expect(confirmedCounts['com.social.app'], equals(1));
+
+      final allCounts = await repository.getAttemptCountsByPackage(outcome: null);
+      expect(allCounts['com.social.app'], equals(3));
+
+      final outcomeCounts = await repository.getOutcomeCounts();
+      expect(outcomeCounts[ActivityLog.outcomeConfirmed], equals(1));
+      expect(outcomeCounts[ActivityLog.outcomeFailed], equals(1));
+      expect(outcomeCounts[ActivityLog.outcomeNotRequired], equals(1));
+    });
   });
 
   group('SettingsRepository Tests', () {

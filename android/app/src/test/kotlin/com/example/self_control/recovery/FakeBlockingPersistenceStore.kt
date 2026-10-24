@@ -54,4 +54,29 @@ class FakeBlockingPersistenceStore : BlockingPersistenceStore {
             }
         }
     }
+
+    val pendingActivityLogs: MutableList<Map<String, Any?>> = mutableListOf()
+
+    override fun recordPendingActivityLog(
+        packageName: String,
+        outcome: String,
+        details: String?,
+        timestampMs: Long
+    ) {
+        val map = mutableMapOf<String, Any?>(
+            "packageName" to packageName,
+            "outcome" to outcome,
+            "timestampMs" to timestampMs
+        )
+        if (details != null) {
+            map["details"] = details
+        }
+        pendingActivityLogs.add(map)
+    }
+
+    override fun consumePendingActivityLogs(): List<Map<String, Any?>> {
+        val copy = pendingActivityLogs.toList()
+        pendingActivityLogs.clear()
+        return copy
+    }
 }

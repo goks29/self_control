@@ -37,21 +37,50 @@ class ActivityLogRepositoryImpl implements ActivityLogRepository {
   }
 
   @override
-  Future<Map<String, int>> getAttemptCountsByPackage() async {
+  Future<Map<String, int>> getAttemptCountsByPackage({String? outcome = ActivityLog.outcomeConfirmed}) async {
     final db = await _getDb();
-    final results = await db.rawQuery('''
-      SELECT package_name_snapshot, COUNT(*) AS attempt_count
-      FROM ${AppDatabase.tableActivityLogs}
-      WHERE event_type = ?
-      GROUP BY package_name_snapshot
-      ORDER BY attempt_count DESC;
-    ''', [ActivityLog.eventBlockedAttempt]);
+    final List<Map<String, Object?>> results;
+    if (outcome != null) {
+      results = await db.rawQuery('''
+        SELECT package_name_snapshot, COUNT(*) AS attempt_count
+        FROM ${AppDatabase.tableActivityLogs}
+        WHERE event_type = ? AND outcome = ?
+        GROUP BY package_name_snapshot
+        ORDER BY attempt_count DESC;
+      ''', [ActivityLog.eventBlockedAttempt, outcome]);
+    } else {
+      results = await db.rawQuery('''
+        SELECT package_name_snapshot, COUNT(*) AS attempt_count
+        FROM ${AppDatabase.tableActivityLogs}
+        WHERE event_type = ?
+        GROUP BY package_name_snapshot
+        ORDER BY attempt_count DESC;
+      ''', [ActivityLog.eventBlockedAttempt]);
+    }
 
     final map = <String, int>{};
     for (final row in results) {
       final pkg = row['package_name_snapshot'] as String;
       final count = row['attempt_count'] as int;
       map[pkg] = count;
+    }
+    return map;
+  }
+
+  @override
+  Future<Map<String, int>> getOutcomeCounts() async {
+    final db = await _getDb();
+    final results = await db.rawQuery('''
+      SELECT outcome, COUNT(*) AS total_count
+      FROM ${AppDatabase.tableActivityLogs}
+      GROUP BY outcome;
+    ''');
+
+    final map = <String, int>{};
+    for (final row in results) {
+      final outcome = (row['outcome'] as String?) ?? ActivityLog.outcomeUnknown;
+      final count = row['total_count'] as int;
+      map[outcome] = count;
     }
     return map;
   }

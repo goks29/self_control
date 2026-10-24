@@ -2,8 +2,11 @@ package com.example.self_control.platform
 
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.os.PowerManager
 import android.provider.Settings
 import com.example.self_control.apps.InstalledAppProvider
 import com.example.self_control.blocking.BlockingCapability
@@ -27,13 +30,17 @@ class BlockingMethodHandler(
         when (call.method) {
             "getBlockingCapability" -> handleGetBlockingCapability(result)
             "getAccessibilityStatus" -> handleGetAccessibilityStatus(result)
+            "isAccessibilityServiceEnabled" -> handleIsAccessibilityServiceEnabled(result)
             "openAccessibilitySettings" -> handleOpenAccessibilitySettings(result)
+            "isIgnoringBatteryOptimizations" -> handleIsIgnoringBatteryOptimizations(result)
+            "requestIgnoreBatteryOptimizations" -> handleRequestIgnoreBatteryOptimizations(result)
             "getInstalledApps" -> handleGetInstalledApps(result)
             "syncBlockedApps" -> handleSyncBlockedApps(call, result)
             "syncTemporaryUnlock" -> handleSyncTemporaryUnlock(call, result)
             "revokeTemporaryUnlock" -> handleRevokeTemporaryUnlock(call, result)
             "syncActiveSessions" -> handleSyncActiveSessions(call, result)
             "consumePendingBootEvents", "getPendingBootSyncs" -> handleConsumePendingBootEvents(result)
+            "consumePendingActivityLogs" -> handleConsumePendingActivityLogs(result)
             "getCurrentBlockingState" -> handleGetCurrentBlockingState(result)
             "getLastBlockingResult" -> handleGetLastBlockingResult(result)
             else -> result.notImplemented()
@@ -225,6 +232,64 @@ class BlockingMethodHandler(
             result.success(lastResult)
         } catch (e: Exception) {
             result.success("not_required")
+        }
+    }
+
+    private fun handleIsAccessibilityServiceEnabled(result: MethodChannel.Result) {
+        try {
+            val isEnabled = BlockingCapability.isAccessibilityServiceEnabled(context)
+            result.success(isEnabled)
+        } catch (e: Exception) {
+            result.success(false)
+        }
+    }
+
+    private fun handleIsIgnoringBatteryOptimizations(result: MethodChannel.Result) {
+        try {
+            val powerManager = context.getSystemService(Context.POWER_SERVICE) as? PowerManager
+            val isIgnoring = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                powerManager?.isIgnoringBatteryOptimizations(context.packageName) ?: false
+            } else {
+                true
+            }
+            result.success(isIgnoring)
+        } catch (e: Exception) {
+            result.success(false)
+        }
+    }
+
+    private fun handleRequestIgnoreBatteryOptimizations(result: MethodChannel.Result) {
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+                    data = Uri.parse("package:${context.packageName}")
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                context.startActivity(intent)
+                result.success(true)
+            } else {
+                result.success(true)
+            }
+        } catch (e: Exception) {
+            try {
+                val fallback = Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS).apply {
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                context.startActivity(fallback)
+                result.success(true)
+            } catch (_: Exception) {
+                result.success(false)
+            }
+        }
+    }
+
+    private fun handleConsumePendingActivityLogs(result: MethodChannel.Result) {
+        try {
+            val store = SharedPreferencesBlockingStore.create(context)
+            val logs = store.consumePendingActivityLogs()
+            result.success(logs)
+        } catch (e: Exception) {
+            result.success(emptyList<Map<String, Any?>>())
         }
     }
 

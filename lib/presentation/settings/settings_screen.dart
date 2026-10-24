@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../core/constants/app_colors.dart';
+import '../../data/database/app_database.dart';
 import '../../data/repositories/settings_repository.dart';
 import '../../data/repositories/settings_repository_impl.dart';
 import '../widgets/app_button.dart';
@@ -10,9 +11,11 @@ class SettingsScreen extends StatefulWidget {
   const SettingsScreen({
     super.key,
     this.settingsRepository,
+    this.appDatabase,
   });
 
   final SettingsRepository? settingsRepository;
+  final AppDatabase? appDatabase;
 
   @override
   State<SettingsScreen> createState() => _SettingsScreenState();
@@ -112,12 +115,112 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
     if (mounted) {
       setState(() => _isSaving = false);
+      ScaffoldMessenger.of(context).removeCurrentSnackBar();
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Pengaturan berhasil disimpan.'),
           backgroundColor: AppColors.darkGreen,
         ),
       );
+    }
+  }
+
+  Future<void> _checkIntegrity() async {
+    try {
+      final db = widget.appDatabase ?? AppDatabase.instance;
+      final result = await db.verifyIntegrity(full: true);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).removeCurrentSnackBar();
+      if (result.isHealthy) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Basis data sehat. Tidak ditemukan kerusakan atau pelanggaran relasi.'),
+            backgroundColor: AppColors.darkGreen,
+          ),
+        );
+      } else {
+        final msg = result.integrityErrors.isNotEmpty
+            ? result.integrityErrors.join(', ')
+            : 'Ditemukan ${result.foreignKeyViolations.length} pelanggaran relasi.';
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Peringatan: $msg'),
+            backgroundColor: AppColors.brown,
+          ),
+        );
+      }
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).removeCurrentSnackBar();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Gagal memeriksa integritas: $e'),
+          backgroundColor: AppColors.brown,
+        ),
+      );
+    }
+  }
+
+  Future<void> _confirmReset() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppColors.cream,
+        title: const Text(
+          'Konfirmasi Reset',
+          style: TextStyle(
+            color: AppColors.darkGreen,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+        content: const Text(
+          'Tindakan ini akan mengembalikan seluruh pengaturan ke bawaan dan menghapus riwayat blokir. Lanjutkan?',
+          style: TextStyle(color: AppColors.darkGreen),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text(
+              'Batal',
+              style: TextStyle(color: AppColors.darkGreen),
+            ),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.brown,
+              foregroundColor: AppColors.white,
+            ),
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Reset'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true && mounted) {
+      try {
+        final db = widget.appDatabase ?? AppDatabase.instance;
+        await db.resetToDefaults();
+        await _loadSettings();
+        if (mounted) {
+          ScaffoldMessenger.of(context).removeCurrentSnackBar();
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Seluruh pengaturan dan data berhasil direset.'),
+              backgroundColor: AppColors.darkGreen,
+            ),
+          );
+        }
+      } catch (e) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).removeCurrentSnackBar();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Gagal mereset data: $e'),
+            backgroundColor: AppColors.brown,
+          ),
+        );
+      }
     }
   }
 
@@ -293,6 +396,45 @@ class _SettingsScreenState extends State<SettingsScreen> {
             text: 'Simpan Pengaturan',
             isLoading: _isSaving,
             onPressed: _saveSettings,
+          ),
+          const SizedBox(height: 24),
+          _buildSectionHeader('Pemulihan & Integritas Data'),
+          const SizedBox(height: 8),
+          AppCard(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Periksa kesehatan basis data lokal atau lakukan pemulihan jika terjadi kegagalan sistem.',
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: AppColors.darkGreenMuted,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    Expanded(
+                      child: AppButton(
+                        text: 'Cek Integritas',
+                        variant: AppButtonVariant.secondary,
+                        height: 40,
+                        onPressed: _checkIntegrity,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: AppButton(
+                        text: 'Reset Darurat',
+                        variant: AppButtonVariant.outlineBrown,
+                        height: 40,
+                        onPressed: _confirmReset,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
           ),
           const SizedBox(height: 24),
         ],
