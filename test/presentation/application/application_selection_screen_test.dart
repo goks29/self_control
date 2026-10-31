@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:self_control/data/models/blocked_app.dart';
 import 'package:self_control/presentation/application/application_selection_screen.dart';
 import 'package:self_control/presentation/application/widgets/permission_guide_modal.dart';
+
 import '../test_helpers.dart';
 
 void main() {
@@ -11,7 +12,9 @@ void main() {
   });
 
   group('ApplicationSelectionScreen Tests', () {
-    testWidgets('renders app list with checkboxes and updates selection', (tester) async {
+    testWidgets('renders app list with checkboxes and updates selection', (
+      tester,
+    ) async {
       final now = DateTime.now();
       final appRepo = FakeBlockedAppRepository([
         BlockedApp(
@@ -29,7 +32,17 @@ void main() {
           createdAt: now,
         ),
       ]);
-      final platform = FakeBlockingPlatformChannel(accessibilityStatus: 'enabled');
+      final platform = FakeBlockingPlatformChannel(
+        accessibilityStatus: 'enabled',
+        installedApps: appRepo.apps
+            .map(
+              (app) => <String, dynamic>{
+                'packageName': app.packageName,
+                'appName': app.appName,
+              },
+            )
+            .toList(),
+      );
 
       await tester.pumpWidget(
         MaterialApp(
@@ -49,7 +62,9 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('2 aplikasi dipilih'), findsOneWidget);
-      final updatedApp = await appRepo.getAppByPackageName('com.instagram.android');
+      final updatedApp = await appRepo.getAppByPackageName(
+        'com.instagram.android',
+      );
       expect(updatedApp?.isSelected, isTrue);
     });
 
@@ -74,6 +89,16 @@ void main() {
         MaterialApp(
           home: ApplicationSelectionScreen(
             blockedAppRepository: appRepo,
+            platformChannel: FakeBlockingPlatformChannel(
+              installedApps: appRepo.apps
+                  .map(
+                    (app) => <String, dynamic>{
+                      'packageName': app.packageName,
+                      'appName': app.appName,
+                    },
+                  )
+                  .toList(),
+            ),
           ),
         ),
       );
@@ -86,25 +111,30 @@ void main() {
       expect(find.text('X / Twitter'), findsNothing);
     });
 
-    testWidgets('triggers PermissionGuideModal when accessibility is disabled', (tester) async {
-      final appRepo = FakeBlockedAppRepository();
-      final platform = FakeBlockingPlatformChannel(accessibilityStatus: 'disabled');
+    testWidgets(
+      'triggers PermissionGuideModal when accessibility is disabled',
+      (tester) async {
+        final appRepo = FakeBlockedAppRepository();
+        final platform = FakeBlockingPlatformChannel(
+          accessibilityStatus: 'disabled',
+        );
 
-      await tester.pumpWidget(
-        MaterialApp(
-          home: ApplicationSelectionScreen(
-            blockedAppRepository: appRepo,
-            platformChannel: platform,
+        await tester.pumpWidget(
+          MaterialApp(
+            home: ApplicationSelectionScreen(
+              blockedAppRepository: appRepo,
+              platformChannel: platform,
+            ),
           ),
-        ),
-      );
-      await tester.pumpAndSettle();
+        );
+        await tester.pumpAndSettle();
 
-      await tester.tap(find.text('Aktifkan Pemblokiran'));
-      await tester.pumpAndSettle();
+        await tester.tap(find.text('Aktifkan Pemblokiran'));
+        await tester.pumpAndSettle();
 
-      expect(find.byType(PermissionGuideModal), findsOneWidget);
-      expect(find.text('Aktivasi Layanan Aksesibilitas'), findsOneWidget);
-    });
+        expect(find.byType(PermissionGuideModal), findsOneWidget);
+        expect(find.text('Aktivasi Layanan Aksesibilitas'), findsOneWidget);
+      },
+    );
   });
 }

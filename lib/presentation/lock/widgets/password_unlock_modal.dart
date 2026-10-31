@@ -1,11 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+
 import '../../../core/constants/app_colors.dart';
+import '../../../core/constants/app_spacing.dart';
 import '../../../core/platform/blocking_platform_channel.dart';
-import '../../../data/models/activity_log.dart';
-import '../../../data/models/temporary_unlock.dart';
+import '../../../application/services/temporary_unlock_service.dart';
 import '../../../data/repositories/activity_log_repository.dart';
 import '../../../data/repositories/activity_log_repository_impl.dart';
+import '../../../data/repositories/block_session_repository.dart';
 import '../../../data/repositories/blocked_app_repository.dart';
 import '../../../data/repositories/blocked_app_repository_impl.dart';
 import '../../../data/repositories/settings_repository.dart';
@@ -27,6 +29,7 @@ class PasswordUnlockModal extends StatefulWidget {
     this.blockedAppRepository,
     this.platformChannel,
     this.initialDurationSeconds,
+    this.blockSessionRepository,
   });
 
   final String? packageName;
@@ -38,6 +41,7 @@ class PasswordUnlockModal extends StatefulWidget {
   final BlockedAppRepository? blockedAppRepository;
   final BlockingPlatformChannel? platformChannel;
   final int? initialDurationSeconds;
+  final BlockSessionRepository? blockSessionRepository;
 
   static Future<bool?> show(
     BuildContext context, {
@@ -50,6 +54,7 @@ class PasswordUnlockModal extends StatefulWidget {
     BlockedAppRepository? blockedAppRepository,
     BlockingPlatformChannel? platformChannel,
     int? initialDurationSeconds,
+    BlockSessionRepository? blockSessionRepository,
   }) {
     return showModalBottomSheet<bool>(
       context: context,
@@ -69,6 +74,7 @@ class PasswordUnlockModal extends StatefulWidget {
           blockedAppRepository: blockedAppRepository,
           platformChannel: platformChannel,
           initialDurationSeconds: initialDurationSeconds,
+          blockSessionRepository: blockSessionRepository,
         ),
       ),
     );
@@ -80,16 +86,18 @@ class PasswordUnlockModal extends StatefulWidget {
 
 class _PasswordUnlockModalState extends State<PasswordUnlockModal> {
   late final SettingsRepository _settingsRepo;
-  late final TemporaryUnlockRepository _unlockRepo;
-  late final ActivityLogRepository _logRepo;
-  late final BlockedAppRepository _appRepo;
+  late final TemporaryUnlockService _unlockService;
+  bool _durationChanged = false;
 
   final TextEditingController _passwordController = TextEditingController();
-  final TextEditingController _customMinutesController = TextEditingController(text: '10');
+  final TextEditingController _customMinutesController = TextEditingController(
+    text: '10',
+  );
 
   bool _obscurePassword = true;
   String? _errorMessage;
   bool _isSubmitting = false;
+  bool _unlockCompleted = false;
 
   int _selectedDurationSeconds = 600;
   bool _isCustomDuration = false;
@@ -98,9 +106,16 @@ class _PasswordUnlockModalState extends State<PasswordUnlockModal> {
   void initState() {
     super.initState();
     _settingsRepo = widget.settingsRepository ?? SettingsRepositoryImpl();
-    _unlockRepo = widget.temporaryUnlockRepository ?? TemporaryUnlockRepositoryImpl();
-    _logRepo = widget.activityLogRepository ?? ActivityLogRepositoryImpl();
-    _appRepo = widget.blockedAppRepository ?? BlockedAppRepositoryImpl();
+    _unlockService = TemporaryUnlockService(
+      settingsRepository: _settingsRepo,
+      unlockRepository:
+          widget.temporaryUnlockRepository ?? TemporaryUnlockRepositoryImpl(),
+      logRepository:
+          widget.activityLogRepository ?? ActivityLogRepositoryImpl(),
+      appRepository: widget.blockedAppRepository ?? BlockedAppRepositoryImpl(),
+      sessionRepository: widget.blockSessionRepository,
+      platformChannel: widget.platformChannel ?? BlockingPlatformChannel(),
+    );
 
     if (widget.initialDurationSeconds != null) {
       _selectedDurationSeconds = widget.initialDurationSeconds!;
@@ -117,15 +132,22 @@ class _PasswordUnlockModalState extends State<PasswordUnlockModal> {
   }
 
   Future<void> _loadDefaultDuration() async {
-    final defaultDuration = await _settingsRepo.getDefaultUnlockDurationSeconds();
-    if (mounted) {
-      setState(() {
-        _selectedDurationSeconds = defaultDuration;
-      });
+    try {
+      final defaultDuration = await _settingsRepo
+          .getDefaultUnlockDurationSeconds();
+      if (mounted &&
+          !_durationChanged &&
+          !_isSubmitting &&
+          defaultDuration > 0) {
+        setState(() => _selectedDurationSeconds = defaultDuration);
+      }
+    } catch (_) {
+      // The visible 10-minute default remains usable when settings cannot load.
     }
   }
 
   Future<void> _submitUnlock() async {
+    if (_isSubmitting || _unlockCompleted || !mounted) return;
     final password = _passwordController.text;
     if (password.isEmpty) {
       setState(() => _errorMessage = 'Masukkan password');
@@ -137,90 +159,53 @@ class _PasswordUnlockModalState extends State<PasswordUnlockModal> {
       _errorMessage = null;
     });
 
-    final isValid = await _settingsRepo.verifyPassword(password);
-    final packageName = widget.packageName ?? 'unknown.app';
-    final appName = widget.appName ?? 'Aplikasi';
-
-    if (!isValid) {
-      await _logRepo.logEvent(
-        ActivityLog(
-          appId: widget.appId,
-          packageNameSnapshot: packageName,
-          appNameSnapshot: appName,
-          eventType: ActivityLog.eventPasswordFailed,
-          attemptedAt: DateTime.now(),
-        ),
+    final durationSeconds = _isCustomDuration
+        ? (int.tryParse(_customMinutesController.text.trim()) ?? 10).clamp(
+                1,
+                180,
+              ) *
+              60
+        : _selectedDurationSeconds;
+    try {
+      final warning = await _unlockService.unlock(
+        password: password,
+        packageName: widget.packageName,
+        appName: widget.appName,
+        appId: widget.appId,
+        durationSeconds: durationSeconds,
+        isCancelled: () => !mounted,
       );
-
-      if (mounted) {
-        setState(() {
-          _isSubmitting = false;
-          _errorMessage = 'Password salah. Silakan coba lagi.';
-        });
+      if (!mounted) return;
+      _unlockCompleted = true;
+      if (warning != null) {
+        ScaffoldMessenger.maybeOf(context)
+            ?.showSnackBar(SnackBar(content: Text(warning)));
       }
-      return;
-    }
-
-    int durationSeconds = _selectedDurationSeconds;
-    if (_isCustomDuration) {
-      final customMinutes = int.tryParse(_customMinutesController.text.trim()) ?? 10;
-      final clampedMinutes = customMinutes.clamp(1, 180);
-      durationSeconds = clampedMinutes * 60;
-    }
-
-    int effectiveAppId = widget.appId ?? 0;
-    if (effectiveAppId <= 0 && widget.packageName != null) {
-      final app = await _appRepo.getAppByPackageName(widget.packageName!);
-      if (app?.id != null) {
-        effectiveAppId = app!.id!;
-      }
-    }
-
-    final now = DateTime.now();
-    final endAt = now.add(Duration(seconds: durationSeconds));
-
-    if (effectiveAppId > 0) {
-      await _unlockRepo.createUnlock(
-        TemporaryUnlock(
-          appId: effectiveAppId,
-          startAt: now,
-          endAt: endAt,
-          status: TemporaryUnlock.statusActive,
-          createdAt: now,
-        ),
-      );
-    }
-
-    final channel = widget.platformChannel ?? BlockingPlatformChannel();
-    await channel.syncTemporaryUnlock(
-      packageName: packageName,
-      durationSeconds: durationSeconds,
-      expiresAtEpochMs: endAt.millisecondsSinceEpoch,
-    );
-
-    await _logRepo.logEvent(
-      ActivityLog(
-        appId: effectiveAppId > 0 ? effectiveAppId : null,
-        packageNameSnapshot: packageName,
-        appNameSnapshot: appName,
-        eventType: ActivityLog.eventTemporaryUnlockStarted,
-        attemptedAt: now,
-      ),
-    );
-
-    if (mounted) {
-      setState(() => _isSubmitting = false);
       Navigator.of(context).pop(true);
+    } on TemporaryUnlockException catch (error) {
+      if (mounted) setState(() => _errorMessage = error.message);
+    } catch (_) {
+      if (mounted) {
+        setState(
+          () => _errorMessage = 'Gagal membuka akses. Periksa penyimpanan dan layanan aksesibilitas lalu coba lagi.',
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isSubmitting = false);
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    final textTheme = Theme.of(context).textTheme;
+
     return Container(
-      padding: const EdgeInsets.fromLTRB(24, 16, 24, 32),
+      padding: AppSpacing.sheetPadding,
       decoration: const BoxDecoration(
         color: AppColors.cream,
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        borderRadius: BorderRadius.vertical(
+          top: Radius.circular(AppSpacing.xxl),
+        ),
       ),
       child: SafeArea(
         top: false,
@@ -235,28 +220,20 @@ class _PasswordUnlockModalState extends State<PasswordUnlockModal> {
                   height: 4,
                   decoration: BoxDecoration(
                     color: AppColors.peach,
-                    borderRadius: BorderRadius.circular(2),
+                    borderRadius: BorderRadius.circular(AppSpacing.radiusXs),
                   ),
                 ),
               ),
-              const SizedBox(height: 16),
-              const Text(
-                'Buka Akses Sementara',
-                style: TextStyle(
-                  fontSize: 20,
-                  fontWeight: FontWeight.w700,
-                  color: AppColors.darkGreen,
-                ),
-              ),
-              const SizedBox(height: 6),
-              const Text(
+              const SizedBox(height: AppSpacing.lg),
+              Text('Buka Akses Sementara', style: textTheme.headlineSmall),
+              const SizedBox(height: AppSpacing.xs),
+              Text(
                 'Waktu tunggu selesai. Masukkan password Anda untuk membuka akses sementara.',
-                style: TextStyle(
-                  fontSize: 14,
+                style: textTheme.bodyMedium?.copyWith(
                   color: AppColors.darkGreenMuted,
                 ),
               ),
-              const SizedBox(height: 20),
+              const SizedBox(height: AppSpacing.xl),
               AppTextField(
                 label: 'Password',
                 hint: 'Masukkan password Anda',
@@ -270,21 +247,20 @@ class _PasswordUnlockModalState extends State<PasswordUnlockModal> {
                     _obscurePassword ? Icons.visibility_off : Icons.visibility,
                     color: AppColors.darkGreen,
                   ),
-                  onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
+                  onPressed: () =>
+                      setState(() => _obscurePassword = !_obscurePassword),
                 ),
               ),
-              const SizedBox(height: 16),
-              const Text(
+              const SizedBox(height: AppSpacing.lg),
+              Text(
                 'Durasi Buka Akses',
-                style: TextStyle(
-                  fontSize: 14,
+                style: textTheme.titleSmall?.copyWith(
                   fontWeight: FontWeight.w600,
-                  color: AppColors.darkGreen,
                 ),
               ),
-              const SizedBox(height: 8),
+              const SizedBox(height: AppSpacing.sm),
               Wrap(
-                spacing: 8,
+                spacing: AppSpacing.sm,
                 children: [
                   _buildDurationChip(300, '5 menit'),
                   _buildDurationChip(600, '10 menit'),
@@ -292,16 +268,19 @@ class _PasswordUnlockModalState extends State<PasswordUnlockModal> {
                   ChoiceChip(
                     label: const Text('Kustom'),
                     selected: _isCustomDuration,
-                    onSelected: (selected) {
-                      setState(() {
-                        _isCustomDuration = selected;
-                      });
-                    },
+                    onSelected: _isSubmitting
+                        ? null
+                        : (selected) {
+                            setState(() {
+                              _durationChanged = true;
+                              _isCustomDuration = selected;
+                            });
+                          },
                   ),
                 ],
               ),
               if (_isCustomDuration) ...[
-                const SizedBox(height: 12),
+                const SizedBox(height: AppSpacing.md),
                 AppTextField(
                   label: 'Menit Kustom (1-180)',
                   hint: 'Contoh: 20',
@@ -310,7 +289,7 @@ class _PasswordUnlockModalState extends State<PasswordUnlockModal> {
                   inputFormatters: [FilteringTextInputFormatter.digitsOnly],
                 ),
               ],
-              const SizedBox(height: 24),
+              const SizedBox(height: AppSpacing.xxl),
               AppButton(
                 text: 'Buka Sementara',
                 isLoading: _isSubmitting,
@@ -324,18 +303,22 @@ class _PasswordUnlockModalState extends State<PasswordUnlockModal> {
   }
 
   Widget _buildDurationChip(int seconds, String label) {
-    final isSelected = !_isCustomDuration && _selectedDurationSeconds == seconds;
+    final isSelected =
+        !_isCustomDuration && _selectedDurationSeconds == seconds;
     return ChoiceChip(
       label: Text(label),
       selected: isSelected,
-      onSelected: (selected) {
-        if (selected) {
-          setState(() {
-            _selectedDurationSeconds = seconds;
-            _isCustomDuration = false;
-          });
-        }
-      },
+      onSelected: _isSubmitting
+          ? null
+          : (selected) {
+              if (selected) {
+                setState(() {
+                  _durationChanged = true;
+                  _selectedDurationSeconds = seconds;
+                  _isCustomDuration = false;
+                });
+              }
+            },
     );
   }
 }

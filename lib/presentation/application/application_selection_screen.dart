@@ -1,4 +1,8 @@
+import 'dart:developer' as developer;
+
 import 'package:flutter/material.dart';
+
+import '../../application/services/application_catalog_service.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/platform/blocking_platform_channel.dart';
 import '../../data/models/blocked_app.dart';
@@ -12,23 +16,35 @@ class ApplicationSelectionScreen extends StatefulWidget {
     super.key,
     this.blockedAppRepository,
     this.platformChannel,
+    this.refreshRevision = 0,
   });
 
   final BlockedAppRepository? blockedAppRepository;
   final BlockingPlatformChannel? platformChannel;
+  final int refreshRevision;
 
   @override
-  State<ApplicationSelectionScreen> createState() => _ApplicationSelectionScreenState();
+  State<ApplicationSelectionScreen> createState() =>
+      _ApplicationSelectionScreenState();
 }
 
-class _ApplicationSelectionScreenState extends State<ApplicationSelectionScreen> {
+class _ApplicationSelectionScreenState
+    extends State<ApplicationSelectionScreen> {
   late final BlockedAppRepository _appRepo;
   late final BlockingPlatformChannel _platformChannel;
+  late final ApplicationCatalogService _catalog;
 
   List<BlockedApp> _apps = [];
   String _searchQuery = '';
   bool _isLoading = true;
   bool _isActivating = false;
+  bool _isShowingPermissionGuide = false;
+  bool _isSaving = false;
+  bool _loadInProgress = false;
+  bool _reloadPending = false;
+  String? _error;
+
+  bool get _isBusy => _loadInProgress || _isSaving || _isActivating;
   final TextEditingController _searchController = TextEditingController();
 
   @override
@@ -36,7 +52,19 @@ class _ApplicationSelectionScreenState extends State<ApplicationSelectionScreen>
     super.initState();
     _appRepo = widget.blockedAppRepository ?? BlockedAppRepositoryImpl();
     _platformChannel = widget.platformChannel ?? BlockingPlatformChannel();
+    _catalog = ApplicationCatalogService(
+      repository: _appRepo,
+      platformChannel: _platformChannel,
+    );
     _loadApps();
+  }
+
+  @override
+  void didUpdateWidget(covariant ApplicationSelectionScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.refreshRevision != widget.refreshRevision) {
+      _loadApps();
+    }
   }
 
   @override
@@ -46,90 +74,139 @@ class _ApplicationSelectionScreenState extends State<ApplicationSelectionScreen>
   }
 
   Future<void> _loadApps() async {
-    setState(() => _isLoading = true);
-    var loadedApps = List<BlockedApp>.from(await _appRepo.getAllApps());
-
-    if (loadedApps.isEmpty) {
-      final installed = await _platformChannel.getInstalledApps();
-      if (installed.isNotEmpty) {
-        final now = DateTime.now();
-        final appsToSave = installed.map((app) {
-          return BlockedApp(
-            packageName: app['packageName'] as String,
-            appName: app['appName'] as String,
-            isSelected: false,
-            createdAt: now,
-          );
-        }).toList();
-        await _appRepo.saveApps(appsToSave);
-        loadedApps = List<BlockedApp>.from(await _appRepo.getAllApps());
-      }
+    if (!mounted) return;
+    if (_isBusy) {
+      _reloadPending = true;
+      return;
     }
-
-    loadedApps.sort((a, b) => a.appName.toLowerCase().compareTo(b.appName.toLowerCase()));
-
-    if (mounted) {
+    _loadInProgress = true;
+    setState(() {
+      _isLoading = true;
+      _error = null;
+    });
+    try {
+      final result = await _catalog.loadApps();
+      if (!mounted) return;
       setState(() {
-        _apps = loadedApps;
-        _isLoading = false;
+        _apps = result.apps;
+        _error = result.error == null
+            ? null
+            : 'Gagal memuat aplikasi terpasang. Daftar tersimpan ditampilkan.';
       });
+    } catch (error, stackTrace) {
+      developer.log(
+        'Failed to load application catalog',
+        name: 'ApplicationSelectionScreen.loadApps',
+        level: 1000,
+        error: error,
+        stackTrace: stackTrace,
+      );
+      if (mounted) setState(() => _error = 'Gagal memuat daftar aplikasi.');
+    } finally {
+      _loadInProgress = false;
+      if (mounted) {
+        setState(() => _isLoading = false);
+        _loadPendingRefresh();
+      }
     }
   }
 
-  Future<void> _toggleAppSelection(BlockedApp app) async {
-    final newSelected = !app.isSelected;
-    setState(() {
-      final index = _apps.indexWhere((a) => a.packageName == app.packageName);
-      if (index != -1) {
-        _apps[index] = _apps[index].copyWith(isSelected: newSelected);
-      }
-    });
-
-    await _appRepo.setAppSelected(app.packageName, newSelected);
+  void _loadPendingRefresh() {
+    if (mounted && _reloadPending && !_isBusy) {
+      _reloadPending = false;
+      _loadApps();
+    }
   }
 
-  Future<void> _toggleSelectAll() async {
-    final allSelected = _apps.every((a) => a.isSelected);
-    final targetState = !allSelected;
+  Future<void> _toggleAppSelection(BlockedApp app) =>
+      _saveSelection([app], !app.isSelected);
 
+  Future<void> _toggleSelectAll() =>
+      _saveSelection(List.of(_apps), !_apps.every((app) => app.isSelected));
+
+  Future<void> _saveSelection(List<BlockedApp> apps, bool selected) async {
+    if (!mounted || _isBusy) return;
     setState(() {
-      _apps = _apps.map((a) => a.copyWith(isSelected: targetState)).toList();
+      _isSaving = true;
+      _error = null;
     });
-
-    for (final app in _apps) {
-      await _appRepo.setAppSelected(app.packageName, targetState);
+    try {
+      // Commit each successful write to the UI, so a partial bulk failure
+      // cannot leave the displayed selections ahead of persisted state.
+      for (final app in apps) {
+        if (!mounted) return;
+        await _appRepo.setAppSelected(app.packageName, selected);
+        if (!mounted) return;
+        setState(() {
+          _apps = _apps
+              .map(
+                (current) => current.packageName == app.packageName
+                    ? current.copyWith(isSelected: selected)
+                    : current,
+              )
+              .toList();
+        });
+      }
+    } catch (error, stackTrace) {
+      developer.log(
+        'Failed to persist application selection',
+        name: 'ApplicationSelectionScreen.saveSelection',
+        level: 1000,
+        error: error,
+        stackTrace: stackTrace,
+      );
+      if (mounted) setState(() => _error = 'Gagal menyimpan pilihan aplikasi.');
+    } finally {
+      if (mounted) {
+        setState(() => _isSaving = false);
+        _loadPendingRefresh();
+      }
     }
   }
 
   Future<void> _activateBlocking() async {
-    setState(() => _isActivating = true);
-    final status = await _platformChannel.getAccessibilityStatus();
-    setState(() => _isActivating = false);
-
-    if (status != 'enabled') {
-      if (mounted) {
+    if (!mounted || _isBusy) return;
+    setState(() {
+      _isActivating = true;
+      _error = null;
+    });
+    try {
+      final activated = await _catalog.activateBlocking(_apps);
+      if (!mounted) return;
+      if (!activated) {
+        setState(() => _isShowingPermissionGuide = true);
         await PermissionGuideModal.show(
           context,
           platformChannel: _platformChannel,
         );
+        return;
       }
-      return;
-    }
-
-    final selectedPackages = _apps
-        .where((a) => a.isSelected)
-        .map((a) => a.packageName)
-        .toList();
-
-    await _platformChannel.syncBlockedApps(selectedPackages);
-
-    if (mounted) {
+      final count = _apps.where((app) => app.isSelected).length;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Pemblokiran aktif untuk ${selectedPackages.length} aplikasi'),
+          content: Text('Pemblokiran aktif untuk $count aplikasi'),
           backgroundColor: AppColors.darkGreen,
         ),
       );
+    } catch (error, stackTrace) {
+      developer.log(
+        'Failed to activate application blocking',
+        name: 'ApplicationSelectionScreen.activateBlocking',
+        level: 1000,
+        error: error,
+        stackTrace: stackTrace,
+      );
+      if (mounted) {
+        setState(() => _error = 'Gagal mengaktifkan pemblokiran. Coba lagi.');
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isActivating = false;
+          _isShowingPermissionGuide = false;
+        });
+        _loadPendingRefresh();
+      }
     }
   }
 
@@ -154,21 +231,42 @@ class _ApplicationSelectionScreenState extends State<ApplicationSelectionScreen>
       backgroundColor: AppColors.cream,
       body: Column(
         children: [
+          if (_error != null)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      _error!,
+                      style: Theme.of(context).textTheme.bodyMedium,
+                    ),
+                  ),
+                  TextButton(
+                    onPressed: _isBusy ? null : _loadApps,
+                    child: const Text('Coba Lagi'),
+                  ),
+                ],
+              ),
+            ),
           Padding(
-            padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
             child: TextField(
               controller: _searchController,
               onChanged: (val) => setState(() => _searchQuery = val),
-              style: const TextStyle(
-                color: AppColors.darkGreen,
-                fontSize: 14,
-              ),
+              style: Theme.of(context).textTheme.bodyMedium,
               decoration: InputDecoration(
                 hintText: 'Cari aplikasi...',
-                prefixIcon: const Icon(Icons.search, color: AppColors.darkGreen),
+                prefixIcon: const Icon(
+                  Icons.search,
+                  color: AppColors.darkGreen,
+                ),
                 suffixIcon: _searchQuery.isNotEmpty
                     ? IconButton(
-                        icon: const Icon(Icons.clear, color: AppColors.darkGreen),
+                        icon: const Icon(
+                          Icons.clear,
+                          color: AppColors.darkGreen,
+                        ),
                         onPressed: () {
                           _searchController.clear();
                           setState(() => _searchQuery = '');
@@ -187,22 +285,20 @@ class _ApplicationSelectionScreenState extends State<ApplicationSelectionScreen>
                   child: Text(
                     '$selectedCount aplikasi dipilih',
                     overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w600,
-                      color: AppColors.darkGreen,
-                    ),
+                    style: Theme.of(context).textTheme.titleSmall,
                   ),
                 ),
+                IconButton(
+                  tooltip: 'Segarkan aplikasi',
+                  onPressed: _isBusy ? null : _loadApps,
+                  icon: const Icon(Icons.refresh, color: AppColors.darkGreen),
+                ),
                 TextButton(
-                  onPressed: _apps.isEmpty ? null : _toggleSelectAll,
+                  onPressed: _apps.isEmpty || _isBusy ? null : _toggleSelectAll,
                   child: Text(
                     allSelected ? 'Batal Pilih Semua' : 'Pilih Semua',
-                    style: const TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w600,
-                      color: AppColors.brown,
-                    ),
+                    style: Theme.of(context).textTheme.labelLarge
+                        ?.copyWith(color: AppColors.brown),
                   ),
                 ),
               ],
@@ -216,10 +312,8 @@ class _ApplicationSelectionScreenState extends State<ApplicationSelectionScreen>
                       _searchQuery.isEmpty
                           ? 'Tidak ada aplikasi terpasang'
                           : 'Aplikasi "$_searchQuery" tidak ditemukan',
-                      style: const TextStyle(
-                        fontSize: 14,
-                        color: AppColors.darkGreenMuted,
-                      ),
+                      style: Theme.of(context).textTheme.bodyMedium
+                          ?.copyWith(color: AppColors.darkGreenMuted),
                     ),
                   )
                 : ListView.separated(
@@ -232,7 +326,7 @@ class _ApplicationSelectionScreenState extends State<ApplicationSelectionScreen>
                     itemBuilder: (context, index) {
                       final app = filteredApps[index];
                       return ListTile(
-                        onTap: () => _toggleAppSelection(app),
+                        onTap: _isBusy ? null : () => _toggleAppSelection(app),
                         leading: CircleAvatar(
                           backgroundColor: AppColors.peach,
                           foregroundColor: AppColors.darkGreen,
@@ -240,27 +334,26 @@ class _ApplicationSelectionScreenState extends State<ApplicationSelectionScreen>
                             app.appName.isNotEmpty
                                 ? app.appName.substring(0, 1).toUpperCase()
                                 : '?',
-                            style: const TextStyle(fontWeight: FontWeight.w700),
+                            style: Theme.of(context).textTheme.titleMedium
+                                ?.copyWith(
+                                  fontWeight: FontWeight.w700,
+                                  color: AppColors.darkGreen,
+                                ),
                           ),
                         ),
                         title: Text(
                           app.appName,
-                          style: const TextStyle(
-                            fontSize: 15,
-                            fontWeight: FontWeight.w600,
-                            color: AppColors.darkGreen,
-                          ),
+                          style: Theme.of(context).textTheme.titleMedium,
                         ),
                         subtitle: Text(
                           app.packageName,
-                          style: const TextStyle(
-                            fontSize: 12,
-                            color: AppColors.darkGreenMuted,
-                          ),
+                          style: Theme.of(context).textTheme.bodySmall,
                         ),
                         trailing: Checkbox(
                           value: app.isSelected,
-                          onChanged: (_) => _toggleAppSelection(app),
+                          onChanged: _isBusy
+                              ? null
+                              : (_) => _toggleAppSelection(app),
                         ),
                       );
                     },
@@ -282,8 +375,8 @@ class _ApplicationSelectionScreenState extends State<ApplicationSelectionScreen>
               top: false,
               child: AppButton(
                 text: 'Aktifkan Pemblokiran',
-                isLoading: _isActivating,
-                onPressed: _activateBlocking,
+                isLoading: _isActivating && !_isShowingPermissionGuide,
+                onPressed: _isBusy ? null : _activateBlocking,
               ),
             ),
           ),

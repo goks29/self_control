@@ -1,7 +1,11 @@
 import 'package:flutter/material.dart';
+
 import '../../core/constants/app_colors.dart';
 import '../../core/platform/blocking_platform_channel.dart';
-import '../../data/models/activity_log.dart';
+
+import 'dart:developer' as developer;
+
+import '../../application/services/runtime_sync_service.dart';
 import '../../data/repositories/activity_log_repository.dart';
 import '../../data/repositories/activity_log_repository_impl.dart';
 import '../../data/repositories/blocked_app_repository.dart';
@@ -36,12 +40,16 @@ class MainScaffold extends StatefulWidget {
   State<MainScaffold> createState() => _MainScaffoldState();
 }
 
-class _MainScaffoldState extends State<MainScaffold> with WidgetsBindingObserver {
+class _MainScaffoldState extends State<MainScaffold>
+    with WidgetsBindingObserver {
   late int _currentIndex;
   late final BlockingPlatformChannel _platformChannel;
-  late final TemporaryUnlockRepository _unlockRepo;
-  late final ActivityLogRepository _logRepo;
+  late final RuntimeSyncService _runtimeSync;
   bool _isAccessibilityDisabled = false;
+  bool _isSynchronizing = false;
+  bool _syncRequested = false;
+  String? _syncError;
+  int _dataRevision = 0;
 
   @override
   void initState() {
@@ -49,13 +57,14 @@ class _MainScaffoldState extends State<MainScaffold> with WidgetsBindingObserver
     WidgetsBinding.instance.addObserver(this);
     _currentIndex = widget.initialIndex;
     _platformChannel = widget.platformChannel ?? BlockingPlatformChannel();
-    _unlockRepo = widget.temporaryUnlockRepository ?? TemporaryUnlockRepositoryImpl();
-    _logRepo = widget.activityLogRepository ?? ActivityLogRepositoryImpl();
-
-    _checkAccessibilityStatus();
-    _drainBootSyncs();
-    _drainPendingActivityLogs();
-    _reconcileUnlocks();
+    _runtimeSync = RuntimeSyncService(
+      channel: _platformChannel,
+      unlocks:
+          widget.temporaryUnlockRepository ?? TemporaryUnlockRepositoryImpl(),
+      logs: widget.activityLogRepository ?? ActivityLogRepositoryImpl(),
+      apps: widget.blockedAppRepository ?? BlockedAppRepositoryImpl(),
+    );
+    _synchronize();
   }
 
   @override
@@ -67,9 +76,9 @@ class _MainScaffoldState extends State<MainScaffold> with WidgetsBindingObserver
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
-      _checkAccessibilityStatus();
-      _drainPendingActivityLogs();
-      _reconcileUnlocks();
+      // Permission status must not wait behind database reconciliation.
+      _refreshAccessibilityStatus();
+      _synchronize();
     }
   }
 
@@ -82,86 +91,68 @@ class _MainScaffoldState extends State<MainScaffold> with WidgetsBindingObserver
     }
   }
 
-  Future<void> _onFixAccessibilityPressed() async {
-    await _platformChannel.openAccessibilitySettings();
-    await _checkAccessibilityStatus();
-  }
-
-  Future<void> _reconcileUnlocks() async {
-    final expired = await _unlockRepo.expireOutdatedUnlocks();
-    for (final pkg in expired) {
-      await _platformChannel.revokeTemporaryUnlock(pkg);
-    }
-  }
-
-  DateTime _sanitizeEpochMs(dynamic rawValue) {
-    const maxEpochMs = 8640000000000000;
-    final ms = (rawValue as num?)?.toInt();
-    if (ms == null || ms < 0 || ms > maxEpochMs) {
-      return DateTime.now();
-    }
+  Future<void> _refreshAccessibilityStatus() async {
     try {
-      return DateTime.fromMillisecondsSinceEpoch(ms);
-    } catch (_) {
-      return DateTime.now();
+      await _checkAccessibilityStatus();
+    } catch (error, stack) {
+      _reportSyncError(error, stack);
     }
   }
 
-  Future<void> _drainBootSyncs() async {
-    final bootTimestamps = await _platformChannel.consumePendingBootEvents();
-    for (final ts in bootTimestamps) {
-      try {
-        await _logRepo.logEvent(
-          ActivityLog(
-            packageNameSnapshot: 'system',
-            appNameSnapshot: 'BootReceiver',
-            eventType: ActivityLog.eventBootCompletedSync,
-            attemptedAt: _sanitizeEpochMs(ts),
-          ),
-        );
-      } catch (_) {}
+  Future<void> _onFixAccessibilityPressed() async {
+    try {
+      if (!await _platformChannel.openAccessibilitySettings()) {
+        throw StateError('Accessibility settings could not be opened');
+      }
+      if (mounted) await _synchronize();
+    } catch (error, stack) {
+      _reportSyncError(error, stack);
     }
   }
 
-  Future<void> _drainPendingActivityLogs() async {
-    final rawLogs = await _platformChannel.consumePendingActivityLogs();
-    if (rawLogs.isEmpty) return;
-
-    final blockedRepo = widget.blockedAppRepository ?? BlockedAppRepositoryImpl();
-    for (final raw in rawLogs) {
-      try {
-        final pkg = (raw['packageName'] as String?) ?? '';
-        final outcome = (raw['outcome'] as String?) ?? ActivityLog.outcomeConfirmed;
-        final details = raw['details'] as String?;
-        final safeDate = _sanitizeEpochMs(raw['timestampMs']);
-
-        String appName = pkg;
-        int? appId;
-        if (pkg.isNotEmpty) {
-          final app = await blockedRepo.getAppByPackageName(pkg);
-          if (app != null) {
-            appName = app.appName;
-            appId = app.id;
-          }
+  Future<void> _synchronize() async {
+    if (!mounted) return;
+    if (_isSynchronizing) {
+      _syncRequested = true;
+      return;
+    }
+    _isSynchronizing = true;
+    try {
+      await _checkAccessibilityStatus();
+      await _runtimeSync.synchronize();
+      if (mounted) setState(() => _syncError = null);
+    } catch (error, stack) {
+      _reportSyncError(error, stack);
+    } finally {
+      _isSynchronizing = false;
+      if (mounted) {
+        setState(() => _dataRevision++);
+        if (_syncRequested) {
+          _syncRequested = false;
+          _synchronize();
         }
+      }
+    }
+  }
 
-        await _logRepo.logEvent(
-          ActivityLog(
-            appId: appId,
-            packageNameSnapshot: pkg,
-            appNameSnapshot: appName,
-            eventType: ActivityLog.eventBlockedAttempt,
-            outcome: outcome,
-            details: details,
-            attemptedAt: safeDate,
-          ),
-        );
-      } catch (_) {}
+  void _reportSyncError(Object error, StackTrace stack) {
+    developer.log(
+      'Runtime synchronization failed (${error.runtimeType})',
+      name: 'self_control.sync',
+      stackTrace: stack,
+    );
+    if (mounted) {
+      setState(
+        () => _syncError = 'Sinkronisasi data belum selesai. Coba lagi.',
+      );
     }
   }
 
   void _onTabSelected(int index) {
-    setState(() => _currentIndex = index);
+    setState(() {
+      _currentIndex = index;
+      _dataRevision++;
+    });
   }
 
   @override
@@ -181,28 +172,21 @@ class _MainScaffoldState extends State<MainScaffold> with WidgetsBindingObserver
           padding: EdgeInsets.zero,
           children: [
             DrawerHeader(
-              decoration: const BoxDecoration(
-                color: AppColors.darkGreen,
-              ),
+              decoration: const BoxDecoration(color: AppColors.darkGreen),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisAlignment: MainAxisAlignment.end,
-                children: const [
+                children: [
                   Text(
                     'Self-Control',
-                    style: TextStyle(
-                      fontSize: 22,
-                      fontWeight: FontWeight.w700,
-                      color: AppColors.cream,
-                    ),
+                    style: Theme.of(context).textTheme.headlineSmall
+                        ?.copyWith(color: AppColors.cream),
                   ),
-                  SizedBox(height: 4),
+                  const SizedBox(height: 4),
                   Text(
                     'Fokus & Disiplin Digital',
-                    style: TextStyle(
-                      fontSize: 14,
-                      color: AppColors.peach,
-                    ),
+                    style: Theme.of(context).textTheme.bodyMedium
+                        ?.copyWith(color: AppColors.peach),
                   ),
                 ],
               ),
@@ -210,14 +194,19 @@ class _MainScaffoldState extends State<MainScaffold> with WidgetsBindingObserver
             ListTile(
               leading: Icon(
                 _currentIndex == 0 ? Icons.dashboard : Icons.dashboard_outlined,
-                color: _currentIndex == 0 ? AppColors.brown : AppColors.darkGreen,
+                color: _currentIndex == 0
+                    ? AppColors.brown
+                    : AppColors.darkGreen,
               ),
               title: Text(
                 'Beranda',
-                style: TextStyle(
-                  fontSize: 15,
-                  fontWeight: _currentIndex == 0 ? FontWeight.w700 : FontWeight.w500,
-                  color: _currentIndex == 0 ? AppColors.brown : AppColors.darkGreen,
+                style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                  fontWeight: _currentIndex == 0
+                      ? FontWeight.w700
+                      : FontWeight.w500,
+                  color: _currentIndex == 0
+                      ? AppColors.brown
+                      : AppColors.darkGreen,
                 ),
               ),
               selected: _currentIndex == 0,
@@ -230,14 +219,19 @@ class _MainScaffoldState extends State<MainScaffold> with WidgetsBindingObserver
             ListTile(
               leading: Icon(
                 _currentIndex == 1 ? Icons.apps : Icons.apps_outlined,
-                color: _currentIndex == 1 ? AppColors.brown : AppColors.darkGreen,
+                color: _currentIndex == 1
+                    ? AppColors.brown
+                    : AppColors.darkGreen,
               ),
               title: Text(
                 'Aplikasi',
-                style: TextStyle(
-                  fontSize: 15,
-                  fontWeight: _currentIndex == 1 ? FontWeight.w700 : FontWeight.w500,
-                  color: _currentIndex == 1 ? AppColors.brown : AppColors.darkGreen,
+                style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                  fontWeight: _currentIndex == 1
+                      ? FontWeight.w700
+                      : FontWeight.w500,
+                  color: _currentIndex == 1
+                      ? AppColors.brown
+                      : AppColors.darkGreen,
                 ),
               ),
               selected: _currentIndex == 1,
@@ -253,50 +247,92 @@ class _MainScaffoldState extends State<MainScaffold> with WidgetsBindingObserver
                 Icons.settings_outlined,
                 color: AppColors.darkGreen,
               ),
-              title: const Text(
+              title: Text(
                 'Pengaturan',
-                style: TextStyle(
-                  fontSize: 15,
+                style: Theme.of(context).textTheme.titleMedium?.copyWith(
                   fontWeight: FontWeight.w500,
                   color: AppColors.darkGreen,
                 ),
               ),
-              onTap: () {
+              onTap: () async {
                 Navigator.of(context).pop();
-                Navigator.of(context).push(
+                await Navigator.of(context).push(
                   MaterialPageRoute<void>(
                     builder: (_) => SettingsScreen(
                       settingsRepository: widget.settingsRepository,
+                      platformChannel: _platformChannel,
+                      runExclusiveReset: _runtimeSync.runExclusiveReset,
+                      onDataReset: () {
+                        if (mounted) setState(() => _dataRevision++);
+                      },
                     ),
                   ),
                 );
+                if (mounted) await _synchronize();
               },
             ),
           ],
         ),
       ),
-      body: Column(
-        children: [
-          if (_isAccessibilityDisabled)
-            RevokedPermissionBanner(
-              onFixPressed: _onFixAccessibilityPressed,
-            ),
-          Expanded(
-            child: IndexedStack(
-              index: _currentIndex,
-              children: [
-                DashboardScreen(
-                  activityLogRepository: widget.activityLogRepository,
-                  onNavigateToApplications: () => _onTabSelected(1),
+      body: LayoutBuilder(
+        builder: (context, constraints) => Column(
+          children: [
+            if (_syncError != null || _isAccessibilityDisabled)
+              ConstrainedBox(
+                constraints: BoxConstraints(
+                  maxHeight: constraints.maxHeight * 0.4,
                 ),
-                ApplicationSelectionScreen(
-                  blockedAppRepository: widget.blockedAppRepository,
-                  platformChannel: widget.platformChannel,
+                child: SingleChildScrollView(
+                  child: Column(
+                    children: [
+                      if (_syncError != null)
+                        Material(
+                          color: AppColors.peach,
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 16,
+                              vertical: 8,
+                            ),
+                            child: Row(
+                              children: [
+                                Expanded(child: Text(_syncError!)),
+                                TextButton(
+                                  onPressed: _isSynchronizing
+                                      ? null
+                                      : _synchronize,
+                                  child: const Text('Coba Lagi'),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      if (_isAccessibilityDisabled)
+                        RevokedPermissionBanner(
+                          onFixPressed: _onFixAccessibilityPressed,
+                        ),
+                    ],
+                  ),
                 ),
-              ],
+              ),
+            Expanded(
+              child: IndexedStack(
+                index: _currentIndex,
+                children: [
+                  DashboardScreen(
+                    refreshRevision: _dataRevision,
+                    activityLogRepository: widget.activityLogRepository,
+                    onNavigateToApplications: () => _onTabSelected(1),
+                  ),
+                  ApplicationSelectionScreen(
+                    refreshRevision: _dataRevision,
+                    blockedAppRepository: widget.blockedAppRepository,
+                    platformChannel: _platformChannel,
+                  ),
+                ],
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: _currentIndex,

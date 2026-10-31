@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../../core/constants/app_colors.dart';
+import '../../../core/constants/app_spacing.dart';
 import '../../../core/platform/blocking_platform_channel.dart';
 import '../../widgets/app_button.dart';
 
@@ -26,86 +27,85 @@ class PermissionGuideModal extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final effectiveChannel = platformChannel ?? BlockingPlatformChannel();
+    final textTheme = Theme.of(context).textTheme;
 
     return Container(
-      padding: const EdgeInsets.fromLTRB(24, 12, 24, 32),
+      padding: AppSpacing.sheetPadding,
       decoration: const BoxDecoration(
         color: AppColors.cream,
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(AppSpacing.xxl)),
       ),
       child: SafeArea(
         top: false,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Center(
-              child: Container(
-                width: 40,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: AppColors.peach,
-                  borderRadius: BorderRadius.circular(2),
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Center(
+                child: Container(
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: AppColors.peach,
+                    borderRadius: BorderRadius.circular(AppSpacing.radiusXs),
+                  ),
                 ),
               ),
-            ),
-            const SizedBox(height: 20),
-            const Center(
-              child: Icon(
-                Icons.accessibility_new_rounded,
-                size: 44,
-                color: AppColors.brown,
+              const SizedBox(height: AppSpacing.md),
+              const Center(
+                child: Icon(
+                  Icons.accessibility_new_rounded,
+                  size: 44,
+                  color: AppColors.brown,
+                ),
               ),
-            ),
-            const SizedBox(height: 12),
-            const Text(
-              'Aktivasi Layanan Aksesibilitas',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.w700,
-                color: AppColors.darkGreen,
+              const SizedBox(height: AppSpacing.sm),
+              Text(
+                'Aktivasi Layanan Aksesibilitas',
+                textAlign: TextAlign.center,
+                style: textTheme.titleLarge?.copyWith(
+                  fontWeight: FontWeight.w700,
+                ),
               ),
-            ),
-            const SizedBox(height: 8),
-            const Text(
-              'Aplikasi Self-Control memerlukan izin Layanan Aksesibilitas untuk mendeteksi kapan aplikasi yang dibatasi dibuka, sehingga pemblokiran dapat berjalan secara otomatis tanpa menguras baterai.',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: 14,
-                height: 1.4,
-                color: AppColors.darkGreen,
+              const SizedBox(height: AppSpacing.sm),
+              Text(
+                'Aplikasi Self-Control memerlukan izin Layanan Aksesibilitas untuk mendeteksi kapan aplikasi yang dibatasi dibuka, sehingga pemblokiran dapat berjalan secara otomatis tanpa menguras baterai.',
+                textAlign: TextAlign.center,
+                style: textTheme.bodyMedium,
               ),
-            ),
-            const SizedBox(height: 24),
-            _buildStepRow(1, 'Tekan tombol "Buka Pengaturan" di bawah.'),
-            const SizedBox(height: 12),
-            _buildStepRow(2, 'Cari dan pilih "Self-Control" pada menu Aksesibilitas.'),
-            const SizedBox(height: 12),
-            _buildStepRow(3, 'Aktifkan toggle switch (Izinkan / On).'),
-            const SizedBox(height: 12),
-            _buildStepRow(4, 'Kembali ke aplikasi ini untuk menyelesaikan aktivasi.'),
-            const SizedBox(height: 28),
-            AppButton(
-              text: 'Buka Pengaturan Aksesibilitas',
-              onPressed: () async {
-                Navigator.of(context).pop();
-                await effectiveChannel.openAccessibilitySettings();
-              },
-            ),
-            const SizedBox(height: 8),
-            AppButton(
-              text: 'Nanti Saja',
-              variant: AppButtonVariant.text,
-              onPressed: () => Navigator.of(context).pop(),
-            ),
-          ],
+              const SizedBox(height: AppSpacing.lg),
+              _buildStepRow(context, 1, 'Tekan tombol "Buka Pengaturan" di bawah.'),
+              const SizedBox(height: AppSpacing.sm),
+              _buildStepRow(context, 2, 'Cari dan pilih "Self-Control" pada menu Aksesibilitas.'),
+              const SizedBox(height: AppSpacing.sm),
+              _buildStepRow(context, 3, 'Aktifkan toggle switch (Izinkan / On).'),
+              const SizedBox(height: AppSpacing.sm),
+              _buildStepRow(context, 4, 'Kembali ke aplikasi ini untuk menyelesaikan aktivasi.'),
+              const SizedBox(height: AppSpacing.lg),
+              AppButton(
+                text: 'Buka Pengaturan Aksesibilitas',
+                onPressed: () async {
+                  Navigator.of(context).pop();
+                  await effectiveChannel.openAccessibilitySettings();
+                },
+              ),
+              const SizedBox(height: AppSpacing.sm),
+              AppButton(
+                text: 'Nanti Saja',
+                variant: AppButtonVariant.text,
+                onPressed: () => Navigator.of(context).pop(),
+              ),
+            ],
+          ),
         ),
       ),
     );
   }
 
-  Widget _buildStepRow(int number, String instruction) {
+  Widget _buildStepRow(BuildContext context, int number, String instruction) {
+    final textTheme = Theme.of(context).textTheme;
+
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -119,22 +119,17 @@ class PermissionGuideModal extends StatelessWidget {
           ),
           child: Text(
             '$number',
-            style: const TextStyle(
+            style: textTheme.labelMedium?.copyWith(
               color: AppColors.cream,
-              fontSize: 12,
               fontWeight: FontWeight.w700,
             ),
           ),
         ),
-        const SizedBox(width: 12),
+        const SizedBox(width: AppSpacing.md),
         Expanded(
           child: Text(
             instruction,
-            style: const TextStyle(
-              fontSize: 13,
-              height: 1.4,
-              color: AppColors.darkGreen,
-            ),
+            style: textTheme.bodyMedium,
           ),
         ),
       ],

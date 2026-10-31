@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../../core/constants/app_colors.dart';
+import '../../../core/constants/app_spacing.dart';
 import '../../widgets/app_button.dart';
 
 class SessionExpiredModal extends StatelessWidget {
@@ -15,11 +16,15 @@ class SessionExpiredModal extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final textTheme = Theme.of(context).textTheme;
+
     return Dialog(
       backgroundColor: AppColors.cream,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(AppSpacing.modalRadius),
+      ),
       child: Padding(
-        padding: const EdgeInsets.all(24),
+        padding: AppSpacing.dialogPadding,
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -28,27 +33,19 @@ class SessionExpiredModal extends StatelessWidget {
               size: 56,
               color: AppColors.brown,
             ),
-            const SizedBox(height: 16),
-            const Text(
+            const SizedBox(height: AppSpacing.lg),
+            Text(
               'Akses Berakhir',
               textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: 20,
-                fontWeight: FontWeight.w700,
-                color: AppColors.darkGreen,
-              ),
+              style: textTheme.headlineSmall,
             ),
-            const SizedBox(height: 12),
-            const Text(
+            const SizedBox(height: AppSpacing.md),
+            Text(
               'Waktu akses sementara telah berakhir. Aplikasi kembali dibatasi.',
               textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: 14,
-                height: 1.5,
-                color: AppColors.darkGreen,
-              ),
+              style: textTheme.bodyMedium,
             ),
-            const SizedBox(height: 24),
+            const SizedBox(height: AppSpacing.xxl),
             AppButton(
               text: 'Kembali',
               onPressed: () => Navigator.of(context).pop(),

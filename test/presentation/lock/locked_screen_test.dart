@@ -64,5 +64,50 @@ void main() {
       expect(find.text('00:00'), findsOneWidget);
       expect(find.byType(PasswordUnlockModal), findsOneWidget);
     });
+
+    testWidgets('launches target app and triggers onUnlocked when password unlock succeeds', (tester) async {
+      final settingsRepo = FakeSettingsRepository(expectedPassword: 'correct123');
+      final unlockRepo = FakeTemporaryUnlockRepository();
+      final logRepo = FakeActivityLogRepository();
+      final appRepo = FakeBlockedAppRepository();
+      final platformChannel = FakeBlockingPlatformChannel();
+      final now = DateTime.now().millisecondsSinceEpoch;
+      var onUnlockedCalled = false;
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: LockedScreen(
+            appName: 'TikTok',
+            packageName: 'com.tiktok.android',
+            appId: 1,
+            startAtEpochMs: now - 10000,
+            endAtEpochMs: now - 1000,
+            settingsRepository: settingsRepo,
+            temporaryUnlockRepository: unlockRepo,
+            activityLogRepository: logRepo,
+            blockedAppRepository: appRepo,
+            platformChannel: platformChannel,
+            autoOpenModal: true,
+            onUnlocked: () {
+              onUnlockedCalled = true;
+            },
+          ),
+        ),
+      );
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+      await tester.pump(const Duration(milliseconds: 500));
+
+      expect(find.byType(PasswordUnlockModal), findsOneWidget);
+
+      await tester.enterText(find.byType(TextFormField), 'correct123');
+      await tester.pump(const Duration(milliseconds: 100));
+      await tester.tap(find.text('Buka Sementara'));
+      await tester.pump(const Duration(milliseconds: 300));
+      await tester.pump(const Duration(milliseconds: 500));
+
+      expect(platformChannel.lastLaunchedTargetApp, 'com.tiktok.android');
+      expect(onUnlockedCalled, isTrue);
+    });
   });
 }

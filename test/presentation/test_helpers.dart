@@ -3,9 +3,11 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:self_control/core/platform/blocking_platform_channel.dart';
 import 'package:self_control/data/models/activity_log.dart';
+import 'package:self_control/data/models/block_session.dart';
 import 'package:self_control/data/models/blocked_app.dart';
 import 'package:self_control/data/models/temporary_unlock.dart';
 import 'package:self_control/data/repositories/activity_log_repository.dart';
+import 'package:self_control/data/repositories/block_session_repository.dart';
 import 'package:self_control/data/repositories/blocked_app_repository.dart';
 import 'package:self_control/data/database/app_database.dart';
 import 'package:self_control/data/repositories/settings_repository.dart';
@@ -16,6 +18,8 @@ void setupTestFonts() {
   TestWidgetsFlutterBinding.ensureInitialized();
   sqfliteFfiInit();
   databaseFactory = databaseFactoryFfi;
+  AppDatabase.defaultCustomPath = inMemoryDatabasePath;
+  AppDatabase.instance.setCustomFactory(databaseFactoryFfi);
   GoogleFonts.config.allowRuntimeFetching = false;
   TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
       .setMockMethodCallHandler(
@@ -40,6 +44,10 @@ void setupTestFonts() {
           return {'status': 'success'};
         case 'consumePendingBootEvents':
           return <int>[];
+        case 'launchTargetApp':
+          return true;
+        case 'getInitialLockIntent':
+          return null;
         default:
           return null;
       }
@@ -313,6 +321,41 @@ class FakeBlockingPlatformChannel extends BlockingPlatformChannel {
     pendingBootEvents.clear();
     return copy;
   }
+
+  String? lastLaunchedTargetApp;
+  Map<String, dynamic>? initialLockIntentResult;
+  final List<void Function(String packageName, int blockedAt)> listeners = [];
+
+  @override
+  Future<bool> launchTargetApp(String packageName) async {
+    lastLaunchedTargetApp = packageName;
+    return true;
+  }
+
+  @override
+  Future<Map<String, dynamic>?> getInitialLockIntent() async {
+    final copy = initialLockIntentResult;
+    initialLockIntentResult = null;
+    return copy;
+  }
+
+  @override
+  void registerLockRequestListener(void Function(String packageName, int blockedAt) listener) {
+    if (!listeners.contains(listener)) {
+      listeners.add(listener);
+    }
+  }
+
+  @override
+  void unregisterLockRequestListener(void Function(String packageName, int blockedAt) listener) {
+    listeners.remove(listener);
+  }
+
+  void triggerLockRequest(String packageName, int blockedAt) {
+    for (final l in List.of(listeners)) {
+      l(packageName, blockedAt);
+    }
+  }
 }
 
 class DummyDatabase implements Database {
@@ -348,6 +391,67 @@ class FakeAppDatabase extends AppDatabase {
   }) async {
     resetToDefaultsCalled = true;
     return DummyDatabase();
+  }
+}
+
+class FakeBlockSessionRepository implements BlockSessionRepository {
+  final List<BlockSession> sessions;
+  int _nextId = 1;
+
+  FakeBlockSessionRepository([List<BlockSession>? initialSessions])
+      : sessions = initialSessions != null ? List.from(initialSessions) : [];
+
+  @override
+  Future<BlockSession?> getActiveSession() async {
+    try {
+      return sessions.lastWhere((s) => s.status == BlockSession.statusActive);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  @override
+  Future<BlockSession?> getActiveSessionForPackage(String packageName) async {
+    try {
+      return sessions.lastWhere(
+        (s) => s.packageName == packageName && s.status == BlockSession.statusActive,
+      );
+    } catch (_) {
+      return null;
+    }
+  }
+
+  @override
+  Future<int> createSession(BlockSession session) async {
+    final id = _nextId++;
+    final created = session.copyWith(id: id);
+    sessions.add(created);
+    return id;
+  }
+
+  @override
+  Future<void> updateSessionStatus(int sessionId, String status) async {
+    final index = sessions.indexWhere((s) => s.id == sessionId);
+    if (index != -1) {
+      sessions[index] = sessions[index].copyWith(status: status);
+    }
+  }
+
+  @override
+  Future<void> completeActiveSessionsForPackage(String packageName) async {
+    for (int i = 0; i < sessions.length; i++) {
+      if (sessions[i].packageName == packageName &&
+          sessions[i].status == BlockSession.statusActive) {
+        sessions[i] = sessions[i].copyWith(status: BlockSession.statusCompleted);
+      }
+    }
+  }
+
+  @override
+  Future<List<BlockSession>> getScheduledSessions() async {
+    return sessions
+        .where((s) => s.status == BlockSession.statusScheduled)
+        .toList();
   }
 }
 
