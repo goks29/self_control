@@ -30,6 +30,20 @@ class BlockSessionRepositoryImpl implements BlockSessionRepository {
   }
 
   @override
+  Future<BlockSession?> getActiveSessionForPackage(String packageName) async {
+    final db = await _getDb();
+    final maps = await db.query(
+      AppDatabase.tableBlockSessions,
+      where: 'package_name = ? AND status = ?',
+      whereArgs: [packageName, BlockSession.statusActive],
+      orderBy: 'start_at DESC',
+      limit: 1,
+    );
+    if (maps.isEmpty) return null;
+    return BlockSession.fromMap(maps.first);
+  }
+
+  @override
   Future<int> createSession(BlockSession session) async {
     final db = await _getDb();
     return await db.insert(
@@ -47,6 +61,19 @@ class BlockSessionRepositoryImpl implements BlockSessionRepository {
       where: 'id = ?',
       whereArgs: [sessionId],
     );
+  }
+
+  @override
+  Future<void> completeActiveSessionsForPackage(String packageName) async {
+    final db = await _getDb();
+    await db.transaction((txn) async {
+      await txn.update(
+        AppDatabase.tableBlockSessions,
+        {'status': BlockSession.statusCompleted},
+        where: 'package_name = ? AND status = ?',
+        whereArgs: [packageName, BlockSession.statusActive],
+      );
+    });
   }
 
   @override

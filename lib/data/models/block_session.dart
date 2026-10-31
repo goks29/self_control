@@ -5,6 +5,7 @@ class BlockSession {
   static const String statusCancelled = 'cancelled';
 
   final int? id;
+  final String? packageName;
   final DateTime startAt;
   final DateTime endAt;
   final String status;
@@ -12,6 +13,7 @@ class BlockSession {
 
   const BlockSession({
     this.id,
+    this.packageName,
     required this.startAt,
     required this.endAt,
     required this.status,
@@ -36,6 +38,7 @@ class BlockSession {
 
   Map<String, dynamic> toMap() {
     final map = <String, dynamic>{
+      'package_name': packageName,
       'start_at': startAt.millisecondsSinceEpoch,
       'end_at': endAt.millisecondsSinceEpoch,
       'status': status,
@@ -50,6 +53,7 @@ class BlockSession {
   factory BlockSession.fromMap(Map<String, dynamic> map) {
     return BlockSession(
       id: map['id'] as int?,
+      packageName: map['package_name'] as String?,
       startAt: DateTime.fromMillisecondsSinceEpoch(map['start_at'] as int),
       endAt: DateTime.fromMillisecondsSinceEpoch(map['end_at'] as int),
       status: map['status'] as String,
@@ -59,6 +63,7 @@ class BlockSession {
 
   BlockSession copyWith({
     int? id,
+    String? packageName,
     DateTime? startAt,
     DateTime? endAt,
     String? status,
@@ -66,6 +71,7 @@ class BlockSession {
   }) {
     return BlockSession(
       id: id ?? this.id,
+      packageName: packageName ?? this.packageName,
       startAt: startAt ?? this.startAt,
       endAt: endAt ?? this.endAt,
       status: status ?? this.status,
@@ -79,6 +85,7 @@ class BlockSession {
       other is BlockSession &&
           runtimeType == other.runtimeType &&
           id == other.id &&
+          packageName == other.packageName &&
           startAt.millisecondsSinceEpoch == other.startAt.millisecondsSinceEpoch &&
           endAt.millisecondsSinceEpoch == other.endAt.millisecondsSinceEpoch &&
           status == other.status &&
@@ -87,6 +94,7 @@ class BlockSession {
   @override
   int get hashCode =>
       id.hashCode ^
+      packageName.hashCode ^
       startAt.millisecondsSinceEpoch.hashCode ^
       endAt.millisecondsSinceEpoch.hashCode ^
       status.hashCode ^
@@ -94,6 +102,6 @@ class BlockSession {
 
   @override
   String toString() {
-    return 'BlockSession(id: $id, startAt: $startAt, endAt: $endAt, status: $status)';
+    return 'BlockSession(id: $id, packageName: $packageName, startAt: $startAt, endAt: $endAt, status: $status)';
   }
 }

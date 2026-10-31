@@ -67,60 +67,59 @@ class TemporaryUnlockRepositoryImpl implements TemporaryUnlockRepository {
 
   @override
   Future<List<String>> expireOutdatedUnlocks() async {
-    try {
-      final db = await _getDb();
-      final now = DateTime.now().toUtc().millisecondsSinceEpoch;
+    final db = await _getDb();
+    final now = DateTime.now().toUtc().millisecondsSinceEpoch;
 
-      final expiredRows = await db.rawQuery('''
+    final expiredRows = await db.rawQuery(
+      '''
         SELECT tu.id, tu.app_id, ba.package_name, ba.app_name
         FROM ${AppDatabase.tableTemporaryUnlocks} tu
         LEFT JOIN ${AppDatabase.tableBlockedApps} ba ON tu.app_id = ba.id
         WHERE tu.status = ? AND tu.end_at <= ?
-      ''', [TemporaryUnlock.statusActive, now]);
+      ''',
+      [TemporaryUnlock.statusActive, now],
+    );
 
-      if (expiredRows.isEmpty) {
-        await db.update(
-          AppDatabase.tableTemporaryUnlocks,
-          {'status': TemporaryUnlock.statusExpired},
-          where: 'status = ? AND end_at <= ?',
-          whereArgs: [TemporaryUnlock.statusActive, now],
-        );
-        return <String>[];
-      }
-
-      final expiredPackageNames = <String>[];
-      await db.transaction((txn) async {
-        final batch = txn.batch();
-        for (final row in expiredRows) {
-          final unlockId = row['id'] as int;
-          final appId = row['app_id'] as int?;
-          final pkg = row['package_name'] as String?;
-          final appName = row['app_name'] as String?;
-          if (pkg != null) {
-            expiredPackageNames.add(pkg);
-          }
-
-          batch.update(
-            AppDatabase.tableTemporaryUnlocks,
-            {'status': TemporaryUnlock.statusExpired},
-            where: 'id = ?',
-            whereArgs: [unlockId],
-          );
-
-          batch.insert(AppDatabase.tableActivityLogs, {
-            'app_id': appId,
-            'package_name_snapshot': pkg ?? 'unknown.app',
-            'app_name_snapshot': appName ?? 'Aplikasi Dibatasi',
-            'event_type': ActivityLog.eventTemporaryUnlockExpired,
-            'attempted_at': now,
-          });
-        }
-        await batch.commit(noResult: true);
-      });
-
-      return expiredPackageNames;
-    } catch (_) {
+    if (expiredRows.isEmpty) {
+      await db.update(
+        AppDatabase.tableTemporaryUnlocks,
+        {'status': TemporaryUnlock.statusExpired},
+        where: 'status = ? AND end_at <= ?',
+        whereArgs: [TemporaryUnlock.statusActive, now],
+      );
       return <String>[];
     }
+
+    final expiredPackageNames = <String>[];
+    await db.transaction((txn) async {
+      final batch = txn.batch();
+      for (final row in expiredRows) {
+        final unlockId = row['id'] as int;
+        final appId = row['app_id'] as int?;
+        final pkg = row['package_name'] as String?;
+        final appName = row['app_name'] as String?;
+        if (pkg != null) {
+          expiredPackageNames.add(pkg);
+        }
+
+        batch.update(
+          AppDatabase.tableTemporaryUnlocks,
+          {'status': TemporaryUnlock.statusExpired},
+          where: 'id = ?',
+          whereArgs: [unlockId],
+        );
+
+        batch.insert(AppDatabase.tableActivityLogs, {
+          'app_id': appId,
+          'package_name_snapshot': pkg ?? 'unknown.app',
+          'app_name_snapshot': appName ?? 'Aplikasi Dibatasi',
+          'event_type': ActivityLog.eventTemporaryUnlockExpired,
+          'attempted_at': now,
+        });
+      }
+      await batch.commit(noResult: true);
+    });
+
+    return expiredPackageNames;
   }
 }

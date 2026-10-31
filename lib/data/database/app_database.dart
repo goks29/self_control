@@ -1,7 +1,7 @@
-import 'dart:io';
 import 'package:path/path.dart';
 import 'package:sqflite/sqflite.dart';
-import '../../core/platform/blocking_platform_channel.dart';
+
+import '../../core/platform/database_files.dart' as database_files;
 
 class DatabaseIntegrityResult {
   final bool isHealthy;
@@ -24,7 +24,7 @@ class AppDatabase {
   static final AppDatabase instance = AppDatabase();
 
   static const String dbName = 'self_control.db';
-  static const int dbVersion = 2;
+  static const int dbVersion = 3;
 
   static const String tableBlockedApps = 'blocked_apps';
   static const String tableBlockRules = 'block_rules';
@@ -33,8 +33,18 @@ class AppDatabase {
   static const String tableActivityLogs = 'activity_logs';
   static const String tableAppSettings = 'app_settings';
 
+  static String? defaultCustomPath;
+
   Database? _database;
   DatabaseFactory? _customFactory;
+  Future<Database>? _initFuture;
+  String? _openedPath;
+  DatabaseFactory? _openedFactory;
+
+  /// True when this open recreated a corrupt database. The application must
+  /// explicitly synchronize native state before resuming normal operations.
+  bool get recoveredOnOpen => _recoveredOnOpen;
+  bool _recoveredOnOpen = false;
 
   void setCustomFactory(DatabaseFactory? factory) {
     _customFactory = factory;
@@ -44,8 +54,16 @@ class AppDatabase {
     if (_database != null && _database!.isOpen) {
       return _database!;
     }
-    _database = await initDatabase();
-    return _database!;
+    if (_initFuture != null) {
+      return _initFuture!;
+    }
+    _initFuture = initDatabase();
+    try {
+      _database = await _initFuture!;
+      return _database!;
+    } finally {
+      _initFuture = null;
+    }
   }
 
   Future<Database> initDatabase({
@@ -56,33 +74,66 @@ class AppDatabase {
     final String path;
     if (customPath != null) {
       path = customPath;
+    } else if (defaultCustomPath != null) {
+      path = defaultCustomPath!;
     } else {
       final databasesPath = await getDatabasesPath();
       path = join(databasesPath, dbName);
     }
 
     final dbFactory = factory ?? _customFactory ?? databaseFactory;
+    _recoveredOnOpen = false;
+    Database? opened;
+    var schemaFailed = false;
+    var integrityFailed = false;
     try {
-      _database = await dbFactory.openDatabase(
+      opened = await dbFactory.openDatabase(
         path,
         options: OpenDatabaseOptions(
           version: dbVersion,
           onConfigure: _onConfigure,
-          onCreate: _onCreate,
-          onUpgrade: _onUpgrade,
+          onCreate: (db, version) async {
+            try {
+              await _onCreate(db, version);
+            } catch (_) {
+              schemaFailed = true;
+              rethrow;
+            }
+          },
+          onUpgrade: (db, oldVersion, newVersion) async {
+            try {
+              await _onUpgrade(db, oldVersion, newVersion);
+            } catch (_) {
+              schemaFailed = true;
+              rethrow;
+            }
+          },
         ),
       );
-      final check = await verifyIntegrity(full: false, targetDb: _database);
+      final check = await verifyIntegrity(full: false, targetDb: opened);
       if (!check.isHealthy) {
+        integrityFailed = true;
         throw StateError('Database integrity check failed');
       }
-      return _database!;
+      _database = opened;
+      _openedPath = path;
+      _openedFactory = dbFactory;
+      return opened;
     } catch (e) {
-      if (enableAutoRecovery) {
-        return performFailsafeRecovery(
+      if (opened != null && opened.isOpen) {
+        await opened.close();
+      }
+      final code = e is DatabaseException ? e.getResultCode() : null;
+      final primaryCode = code == null ? null : code & 0xff;
+      final confirmedCorruption =
+          integrityFailed || primaryCode == 11 || primaryCode == 26;
+      if (enableAutoRecovery && !schemaFailed && confirmedCorruption) {
+        final recovered = await performFailsafeRecovery(
           customPath: path,
           factory: dbFactory,
         );
+        _recoveredOnOpen = true;
+        return recovered;
       }
       rethrow;
     }
@@ -119,10 +170,10 @@ class AppDatabase {
         CHECK (
           (mode = 'duration' AND duration_minutes > 0)
           OR
-          (mode = 'schedule' 
-            AND schedule_start_minute BETWEEN 0 AND 1439 
-            AND schedule_end_minute BETWEEN 0 AND 1439 
-            AND schedule_start_minute <> schedule_end_minute 
+          (mode = 'schedule'
+            AND schedule_start_minute BETWEEN 0 AND 1439
+            AND schedule_end_minute BETWEEN 0 AND 1439
+            AND schedule_start_minute <> schedule_end_minute
             AND days_mask BETWEEN 1 AND 127)
         )
       );
@@ -131,6 +182,7 @@ class AppDatabase {
     batch.execute('''
       CREATE TABLE $tableBlockSessions (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
+        package_name TEXT,
         start_at INTEGER NOT NULL,
         end_at INTEGER NOT NULL,
         status TEXT NOT NULL CHECK (status IN ('scheduled', 'active', 'completed', 'cancelled')),
@@ -178,11 +230,24 @@ class AppDatabase {
       );
     ''');
 
-    batch.execute('CREATE INDEX idx_logs_attempted_at ON $tableActivityLogs(attempted_at);');
-    batch.execute('CREATE INDEX idx_logs_package_time ON $tableActivityLogs(package_name_snapshot, attempted_at);');
-    batch.execute('CREATE INDEX idx_logs_outcome ON $tableActivityLogs(outcome);');
-    batch.execute('CREATE INDEX idx_sessions_status ON $tableBlockSessions(status);');
-    batch.execute('CREATE INDEX idx_unlocks_app_status ON $tableTemporaryUnlocks(app_id, status);');
+    batch.execute(
+      'CREATE INDEX idx_logs_attempted_at ON $tableActivityLogs(attempted_at);',
+    );
+    batch.execute(
+      'CREATE INDEX idx_logs_package_time ON $tableActivityLogs(package_name_snapshot, attempted_at);',
+    );
+    batch.execute(
+      'CREATE INDEX idx_logs_outcome ON $tableActivityLogs(outcome);',
+    );
+    batch.execute(
+      'CREATE INDEX idx_sessions_status ON $tableBlockSessions(status);',
+    );
+    batch.execute(
+      'CREATE INDEX idx_sessions_package_status ON $tableBlockSessions(package_name, status);',
+    );
+    batch.execute(
+      'CREATE INDEX idx_unlocks_app_status ON $tableTemporaryUnlocks(app_id, status);',
+    );
 
     final now = DateTime.now().toUtc().millisecondsSinceEpoch;
     batch.insert(tableAppSettings, {
@@ -216,9 +281,37 @@ class AppDatabase {
 
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
     if (oldVersion < 2) {
-      await db.execute('ALTER TABLE $tableActivityLogs ADD COLUMN outcome TEXT NOT NULL DEFAULT "confirmed";');
-      await db.execute('ALTER TABLE $tableActivityLogs ADD COLUMN details TEXT;');
-      await db.execute('CREATE INDEX IF NOT EXISTS idx_logs_outcome ON $tableActivityLogs(outcome);');
+      await db.execute(
+        'ALTER TABLE $tableActivityLogs ADD COLUMN outcome TEXT NOT NULL DEFAULT "confirmed";',
+      );
+      await db.execute(
+        'ALTER TABLE $tableActivityLogs ADD COLUMN details TEXT;',
+      );
+      await db.execute(
+        'CREATE INDEX IF NOT EXISTS idx_logs_outcome ON $tableActivityLogs(outcome);',
+      );
+    }
+    if (oldVersion < 3) {
+      final tables = await db.rawQuery(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name=?;",
+        [tableBlockSessions],
+      );
+      if (tables.isNotEmpty) {
+        final columns = await db.rawQuery(
+          'PRAGMA table_info($tableBlockSessions);',
+        );
+        final hasPackageName = columns.any(
+          (col) => col['name'] == 'package_name',
+        );
+        if (!hasPackageName) {
+          await db.execute(
+            'ALTER TABLE $tableBlockSessions ADD COLUMN package_name TEXT;',
+          );
+        }
+        await db.execute(
+          'CREATE INDEX IF NOT EXISTS idx_sessions_package_status ON $tableBlockSessions(package_name, status);',
+        );
+      }
     }
   }
 
@@ -229,25 +322,18 @@ class AppDatabase {
     final activeDb = targetDb ?? (await database);
     if (!full) {
       final quickCheck = await activeDb.rawQuery('PRAGMA quick_check;');
-      final firstRow = quickCheck.isNotEmpty ? quickCheck.first : <String, dynamic>{};
-      final status = firstRow.values.isNotEmpty ? firstRow.values.first.toString() : '';
-      final isOk = status.toLowerCase() == 'ok';
+      final errors = _integrityErrors(quickCheck);
+      final isOk = errors.isEmpty;
       return DatabaseIntegrityResult(
         isHealthy: isOk,
         isIntegrityOk: isOk,
         isForeignKeyOk: true,
-        integrityErrors: isOk ? const [] : [status],
+        integrityErrors: errors,
       );
     }
 
     final integrityRows = await activeDb.rawQuery('PRAGMA integrity_check;');
-    final integrityErrors = <String>[];
-    for (final row in integrityRows) {
-      final val = row.values.isNotEmpty ? row.values.first.toString() : '';
-      if (val.toLowerCase() != 'ok') {
-        integrityErrors.add(val);
-      }
-    }
+    final integrityErrors = _integrityErrors(integrityRows);
 
     final fkRows = await activeDb.rawQuery('PRAGMA foreign_key_check;');
     final fkViolations = <String>[];
@@ -266,27 +352,16 @@ class AppDatabase {
     );
   }
 
+  List<String> _integrityErrors(List<Map<String, Object?>> rows) {
+    if (rows.isEmpty) return ['Integrity check returned no results'];
+    return rows
+        .map((row) => row.values.isEmpty ? '' : row.values.first.toString())
+        .where((value) => value.toLowerCase() != 'ok')
+        .toList();
+  }
+
   void backupCorruptFiles(String dbPath, int timestamp) {
-    if (dbPath != inMemoryDatabasePath && !dbPath.startsWith(':memory:')) {
-      final mainFile = File(dbPath);
-      if (mainFile.existsSync()) {
-        mainFile.renameSync('$dbPath.corrupt.$timestamp');
-      }
-      final walFile = File('$dbPath-wal');
-      if (walFile.existsSync()) {
-        walFile.renameSync('$dbPath-wal.corrupt.$timestamp');
-      }
-      final journalFile = File('$dbPath-journal');
-      if (journalFile.existsSync()) {
-        journalFile.renameSync('$dbPath-journal.corrupt.$timestamp');
-      }
-      final shmFile = File('$dbPath-shm');
-      if (shmFile.existsSync()) {
-        try {
-          shmFile.deleteSync();
-        } catch (_) {}
-      }
-    }
+    database_files.backupCorruptFiles(dbPath, timestamp);
   }
 
   Future<Database> performFailsafeRecovery({
@@ -321,12 +396,7 @@ class AppDatabase {
       });
     } catch (_) {}
 
-    try {
-      final channel = BlockingPlatformChannel();
-      await channel.syncBlockedApps([]);
-      await channel.syncActiveSessions(isStrictSessionActive: false);
-    } catch (_) {}
-
+    _recoveredOnOpen = true;
     return db;
   }
 
@@ -335,32 +405,24 @@ class AppDatabase {
     DatabaseFactory? factory,
   }) async {
     await close();
-    final String path;
-    if (customPath != null) {
-      path = customPath;
-    } else {
-      final databasesPath = await getDatabasesPath();
-      path = join(databasesPath, dbName);
-    }
-    final dbFactory = factory ?? _customFactory ?? databaseFactory;
+    final path =
+        customPath ??
+        _openedPath ??
+        defaultCustomPath ??
+        join(await getDatabasesPath(), dbName);
+    final dbFactory =
+        factory ?? _openedFactory ?? _customFactory ?? databaseFactory;
     await dbFactory.deleteDatabase(path);
 
-    final db = await initDatabase(
+    return initDatabase(
       customPath: path,
-      factory: factory,
+      factory: dbFactory,
       enableAutoRecovery: false,
     );
-
-    try {
-      final channel = BlockingPlatformChannel();
-      await channel.syncBlockedApps([]);
-      await channel.syncActiveSessions(isStrictSessionActive: false);
-    } catch (_) {}
-
-    return db;
   }
 
   Future<void> close() async {
+    _initFuture = null;
     if (_database != null && _database!.isOpen) {
       await _database!.close();
       _database = null;

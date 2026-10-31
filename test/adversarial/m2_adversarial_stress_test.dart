@@ -243,7 +243,13 @@ void main() {
       addTearDown(() => tester.view.resetPhysicalSize());
 
       final fakeRepo = FakeBlockedAppRepository(test50Apps);
-      final fakeChannel = FakeBlockingPlatformChannel(accessibilityStatus: 'enabled');
+      final fakeChannel = FakeBlockingPlatformChannel(
+        accessibilityStatus: 'enabled',
+        installedApps: test50Apps.map((app) => <String, dynamic>{
+          'packageName': app.packageName,
+          'appName': app.appName,
+        }).toList(),
+      );
 
       await tester.pumpWidget(
         buildTestableWidget(
@@ -286,7 +292,13 @@ void main() {
       addTearDown(() => tester.view.resetPhysicalSize());
 
       final fakeRepo = FakeBlockedAppRepository(test50Apps);
-      final fakeChannel = FakeBlockingPlatformChannel(accessibilityStatus: 'enabled');
+      final fakeChannel = FakeBlockingPlatformChannel(
+        accessibilityStatus: 'enabled',
+        installedApps: test50Apps.map((app) => <String, dynamic>{
+          'packageName': app.packageName,
+          'appName': app.appName,
+        }).toList(),
+      );
 
       await tester.pumpWidget(
         buildTestableWidget(
@@ -335,7 +347,13 @@ void main() {
       addTearDown(() => tester.view.resetPhysicalSize());
 
       final fakeRepo = FakeBlockedAppRepository(test50Apps);
-      final fakeChannel = FakeBlockingPlatformChannel(accessibilityStatus: 'enabled');
+      final fakeChannel = FakeBlockingPlatformChannel(
+        accessibilityStatus: 'enabled',
+        installedApps: test50Apps.map((app) => <String, dynamic>{
+          'packageName': app.packageName,
+          'appName': app.appName,
+        }).toList(),
+      );
 
       await tester.pumpWidget(
         buildTestableWidget(
@@ -398,7 +416,13 @@ void main() {
       addTearDown(() => tester.view.resetPhysicalSize());
 
       final fakeRepo = FakeBlockedAppRepository(test50Apps);
-      final fakeChannel = FakeBlockingPlatformChannel(accessibilityStatus: 'enabled');
+      final fakeChannel = FakeBlockingPlatformChannel(
+        accessibilityStatus: 'enabled',
+        installedApps: test50Apps.map((app) => <String, dynamic>{
+          'packageName': app.packageName,
+          'appName': app.appName,
+        }).toList(),
+      );
 
       await tester.pumpWidget(
         buildTestableWidget(
