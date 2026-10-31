@@ -28,6 +28,33 @@ class AppButton extends StatelessWidget {
   Widget build(BuildContext context) {
     final effectiveOnPressed = isLoading ? null : onPressed;
 
+    final Color textColor;
+    switch (variant) {
+      case AppButtonVariant.primary:
+        textColor = effectiveOnPressed == null
+            ? AppColors.white.withValues(alpha: 0.8)
+            : AppColors.white;
+        break;
+      case AppButtonVariant.secondary:
+      case AppButtonVariant.text:
+        textColor = effectiveOnPressed == null
+            ? AppColors.darkGreen.withValues(alpha: 0.4)
+            : AppColors.darkGreen;
+        break;
+      case AppButtonVariant.outlineBrown:
+        textColor = effectiveOnPressed == null
+            ? AppColors.brown.withValues(alpha: 0.4)
+            : AppColors.brown;
+        break;
+    }
+
+    final TextStyle textStyle = (Theme.of(context).textTheme.labelLarge ??
+            const TextStyle(fontSize: 14, fontWeight: FontWeight.w600))
+        .copyWith(
+      color: textColor,
+      fontWeight: FontWeight.w600,
+    );
+
     Widget content;
     if (isLoading) {
       final spinnerColor = variant == AppButtonVariant.primary
@@ -46,13 +73,21 @@ class AppButton extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(icon, size: 18),
+          Icon(icon, size: 18, color: textColor),
           const SizedBox(width: AppSpacing.sm),
-          Text(text),
+          Text(
+            text,
+            style: textStyle,
+            textAlign: TextAlign.center,
+          ),
         ],
       );
     } else {
-      content = Text(text);
+      content = Text(
+        text,
+        style: textStyle,
+        textAlign: TextAlign.center,
+      );
     }
 
     switch (variant) {
@@ -68,9 +103,17 @@ class AppButton extends StatelessWidget {
               disabledBackgroundColor: AppColors.brown.withValues(alpha: 0.4),
               disabledForegroundColor: AppColors.white.withValues(alpha: 0.8),
               elevation: 0,
+              padding: EdgeInsets.symmetric(
+                horizontal: isFullWidth ? AppSpacing.xxl : AppSpacing.lg,
+                vertical: 0,
+              ),
+              minimumSize: Size(0, height),
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              visualDensity: VisualDensity.compact,
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(AppSpacing.buttonRadius),
               ),
+              textStyle: textStyle,
             ),
             child: content,
           ),
@@ -91,9 +134,17 @@ class AppButton extends StatelessWidget {
                     : AppColors.darkGreen,
                 width: 1.5,
               ),
+              padding: EdgeInsets.symmetric(
+                horizontal: isFullWidth ? AppSpacing.xxl : AppSpacing.lg,
+                vertical: 0,
+              ),
+              minimumSize: Size(0, height),
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              visualDensity: VisualDensity.compact,
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(AppSpacing.buttonRadius),
               ),
+              textStyle: textStyle,
             ),
             child: content,
           ),
@@ -114,9 +165,17 @@ class AppButton extends StatelessWidget {
                     : AppColors.brown,
                 width: 1.5,
               ),
+              padding: EdgeInsets.symmetric(
+                horizontal: isFullWidth ? AppSpacing.xxl : AppSpacing.lg,
+                vertical: 0,
+              ),
+              minimumSize: Size(0, height),
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              visualDensity: VisualDensity.compact,
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(AppSpacing.buttonRadius),
               ),
+              textStyle: textStyle,
             ),
             child: content,
           ),
@@ -131,9 +190,17 @@ class AppButton extends StatelessWidget {
             style: TextButton.styleFrom(
               foregroundColor: AppColors.darkGreen,
               disabledForegroundColor: AppColors.darkGreen.withValues(alpha: 0.4),
+              padding: EdgeInsets.symmetric(
+                horizontal: isFullWidth ? AppSpacing.xxl : AppSpacing.lg,
+                vertical: 0,
+              ),
+              minimumSize: Size(0, height),
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              visualDensity: VisualDensity.compact,
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(AppSpacing.buttonRadius),
               ),
+              textStyle: textStyle,
             ),
             child: content,
           ),

@@ -143,7 +143,7 @@ abstract final class AppTheme {
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(AppSpacing.buttonRadius),
           ),
-          textStyle: textTheme.labelLarge,
+          textStyle: textTheme.labelLarge?.copyWith(color: AppColors.white),
         ),
       ),
       outlinedButtonTheme: OutlinedButtonThemeData(
