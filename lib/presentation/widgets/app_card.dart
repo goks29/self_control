@@ -1,15 +1,16 @@
 import 'package:flutter/material.dart';
 import '../../core/constants/app_colors.dart';
+import '../../core/constants/app_spacing.dart';
 
 class AppCard extends StatelessWidget {
   const AppCard({
     super.key,
     required this.child,
-    this.padding = const EdgeInsets.all(16),
+    this.padding = AppSpacing.cardPadding,
     this.margin,
     this.color,
     this.onTap,
-    this.borderRadius = 12.0,
+    this.borderRadius = AppSpacing.cardRadius,
     this.border,
   });
 

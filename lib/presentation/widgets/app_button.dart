@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../core/constants/app_colors.dart';
+import '../../core/constants/app_spacing.dart';
 
 enum AppButtonVariant { primary, secondary, outlineBrown, text }
 
@@ -12,7 +13,7 @@ class AppButton extends StatelessWidget {
     this.isLoading = false,
     this.icon,
     this.isFullWidth = true,
-    this.height = 48.0,
+    this.height = AppSpacing.buttonHeight,
   });
 
   final String text;
@@ -46,7 +47,7 @@ class AppButton extends StatelessWidget {
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
           Icon(icon, size: 18),
-          const SizedBox(width: 8),
+          const SizedBox(width: AppSpacing.sm),
           Text(text),
         ],
       );
@@ -68,7 +69,7 @@ class AppButton extends StatelessWidget {
               disabledForegroundColor: AppColors.white.withValues(alpha: 0.8),
               elevation: 0,
               shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(8),
+                borderRadius: BorderRadius.circular(AppSpacing.buttonRadius),
               ),
             ),
             child: content,
@@ -91,7 +92,7 @@ class AppButton extends StatelessWidget {
                 width: 1.5,
               ),
               shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(8),
+                borderRadius: BorderRadius.circular(AppSpacing.buttonRadius),
               ),
             ),
             child: content,
@@ -114,7 +115,7 @@ class AppButton extends StatelessWidget {
                 width: 1.5,
               ),
               shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(8),
+                borderRadius: BorderRadius.circular(AppSpacing.buttonRadius),
               ),
             ),
             child: content,
@@ -131,7 +132,7 @@ class AppButton extends StatelessWidget {
               foregroundColor: AppColors.darkGreen,
               disabledForegroundColor: AppColors.darkGreen.withValues(alpha: 0.4),
               shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(8),
+                borderRadius: BorderRadius.circular(AppSpacing.buttonRadius),
               ),
             ),
             child: content,

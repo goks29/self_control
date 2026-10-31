@@ -1,14 +1,35 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../constants/app_colors.dart';
+import '../constants/app_spacing.dart';
 
 abstract final class AppTheme {
+  static TextStyle displayTimer({Color color = AppColors.darkGreen}) =>
+      GoogleFonts.workSans(
+        fontSize: 56,
+        fontWeight: FontWeight.w700,
+        letterSpacing: 2,
+        color: color,
+      );
+
+  static TextStyle displayMetric({Color color = AppColors.darkGreen}) =>
+      GoogleFonts.workSans(
+        fontSize: 40,
+        fontWeight: FontWeight.w700,
+        color: color,
+      );
+
   static ThemeData get lightTheme {
     final baseTextTheme = GoogleFonts.workSansTextTheme();
 
     final textTheme = baseTextTheme.copyWith(
       displayLarge: baseTextTheme.displayLarge?.copyWith(
         fontSize: 32,
+        fontWeight: FontWeight.w700,
+        color: AppColors.darkGreen,
+      ),
+      displayMedium: baseTextTheme.displayMedium?.copyWith(
+        fontSize: 40,
         fontWeight: FontWeight.w700,
         color: AppColors.darkGreen,
       ),
@@ -39,7 +60,7 @@ abstract final class AppTheme {
       ),
       titleSmall: baseTextTheme.titleSmall?.copyWith(
         fontSize: 14,
-        fontWeight: FontWeight.w500,
+        fontWeight: FontWeight.w600,
         color: AppColors.darkGreen,
       ),
       bodyLarge: baseTextTheme.bodyLarge?.copyWith(
@@ -50,6 +71,7 @@ abstract final class AppTheme {
       bodyMedium: baseTextTheme.bodyMedium?.copyWith(
         fontSize: 14,
         fontWeight: FontWeight.w400,
+        height: 1.45,
         color: AppColors.darkGreen,
       ),
       bodySmall: baseTextTheme.bodySmall?.copyWith(
@@ -58,7 +80,7 @@ abstract final class AppTheme {
         color: AppColors.darkGreenMuted,
       ),
       labelLarge: baseTextTheme.labelLarge?.copyWith(
-        fontSize: 15,
+        fontSize: 14,
         fontWeight: FontWeight.w600,
         color: AppColors.darkGreen,
       ),
@@ -66,6 +88,11 @@ abstract final class AppTheme {
         fontSize: 12,
         fontWeight: FontWeight.w500,
         color: AppColors.darkGreen,
+      ),
+      labelSmall: baseTextTheme.labelSmall?.copyWith(
+        fontSize: 11,
+        fontWeight: FontWeight.w500,
+        color: AppColors.darkGreenMuted,
       ),
     );
 
@@ -104,7 +131,7 @@ abstract final class AppTheme {
         elevation: 0,
         margin: EdgeInsets.zero,
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(AppSpacing.cardRadius),
         ),
       ),
       elevatedButtonTheme: ElevatedButtonThemeData(
@@ -112,9 +139,9 @@ abstract final class AppTheme {
           backgroundColor: AppColors.brown,
           foregroundColor: AppColors.white,
           elevation: 0,
-          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
+          padding: const EdgeInsets.symmetric(horizontal: AppSpacing.xxl, vertical: 14),
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(8),
+            borderRadius: BorderRadius.circular(AppSpacing.buttonRadius),
           ),
           textStyle: textTheme.labelLarge,
         ),
@@ -123,9 +150,9 @@ abstract final class AppTheme {
         style: OutlinedButton.styleFrom(
           foregroundColor: AppColors.darkGreen,
           side: const BorderSide(color: AppColors.darkGreen, width: 1.5),
-          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
+          padding: const EdgeInsets.symmetric(horizontal: AppSpacing.xxl, vertical: 14),
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(8),
+            borderRadius: BorderRadius.circular(AppSpacing.buttonRadius),
           ),
           textStyle: textTheme.labelLarge,
         ),
@@ -133,25 +160,25 @@ abstract final class AppTheme {
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
         fillColor: AppColors.white,
-        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        contentPadding: const EdgeInsets.symmetric(horizontal: AppSpacing.lg, vertical: 14),
         border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(8),
+          borderRadius: BorderRadius.circular(AppSpacing.buttonRadius),
           borderSide: const BorderSide(color: AppColors.border),
         ),
         enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(8),
+          borderRadius: BorderRadius.circular(AppSpacing.buttonRadius),
           borderSide: const BorderSide(color: AppColors.border),
         ),
         focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(8),
+          borderRadius: BorderRadius.circular(AppSpacing.buttonRadius),
           borderSide: const BorderSide(color: AppColors.darkGreen, width: 2),
         ),
         errorBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(8),
+          borderRadius: BorderRadius.circular(AppSpacing.buttonRadius),
           borderSide: const BorderSide(color: AppColors.error, width: 1.5),
         ),
         focusedErrorBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(8),
+          borderRadius: BorderRadius.circular(AppSpacing.buttonRadius),
           borderSide: const BorderSide(color: AppColors.error, width: 2),
         ),
         labelStyle: textTheme.titleSmall,
@@ -167,7 +194,7 @@ abstract final class AppTheme {
         surfaceTintColor: Colors.transparent,
         elevation: 3,
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(16),
+          borderRadius: BorderRadius.circular(AppSpacing.modalRadius),
         ),
         titleTextStyle: textTheme.headlineSmall,
         contentTextStyle: textTheme.bodyMedium,
@@ -192,7 +219,7 @@ abstract final class AppTheme {
         checkColor: const WidgetStatePropertyAll(AppColors.white),
         side: const BorderSide(color: AppColors.darkGreen, width: 1.5),
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(4),
+          borderRadius: BorderRadius.circular(AppSpacing.radiusXs),
         ),
       ),
       chipTheme: ChipThemeData(
@@ -206,9 +233,9 @@ abstract final class AppTheme {
           color: AppColors.white,
           fontWeight: FontWeight.w500,
         ),
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md, vertical: AppSpacing.sm),
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(8),
+          borderRadius: BorderRadius.circular(AppSpacing.buttonRadius),
         ),
         side: BorderSide.none,
       ),
