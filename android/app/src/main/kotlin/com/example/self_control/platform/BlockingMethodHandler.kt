@@ -1,5 +1,6 @@
 package com.example.self_control.platform
 
+import android.app.Activity
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
@@ -21,10 +22,26 @@ import java.util.concurrent.Executors
 class BlockingMethodHandler(
     private val context: Context,
     private val appProvider: InstalledAppProvider = InstalledAppProvider(context),
-    private val executor: ExecutorService = Executors.newSingleThreadExecutor()
+    private val executor: ExecutorService = Executors.newSingleThreadExecutor(),
+    private val activityProvider: (() -> Activity?)? = null,
+    private val initialLockIntentProvider: (() -> Map<String, Any?>?)? = null,
+    private val launchIntentProvider: ((String) -> Intent?)? = null
 ) : MethodChannel.MethodCallHandler {
 
     private val mainHandler = Handler(Looper.getMainLooper())
+    private var cachedLockIntent: Map<String, Any?>? = null
+    private var initialProviderInvoked = false
+
+    fun setInitialLockIntent(packageName: String, blockedAt: Long) {
+        cachedLockIntent = mapOf(
+            "packageName" to packageName,
+            "blockedAt" to blockedAt
+        )
+    }
+
+    fun setInitialLockIntent(intentMap: Map<String, Any?>?) {
+        cachedLockIntent = intentMap
+    }
 
     override fun onMethodCall(call: MethodCall, result: MethodChannel.Result) {
         when (call.method) {
@@ -43,6 +60,9 @@ class BlockingMethodHandler(
             "consumePendingActivityLogs" -> handleConsumePendingActivityLogs(result)
             "getCurrentBlockingState" -> handleGetCurrentBlockingState(result)
             "getLastBlockingResult" -> handleGetLastBlockingResult(result)
+            "launchTargetApp" -> handleLaunchTargetApp(call, result)
+            "getInitialLockIntent" -> handleGetInitialLockIntent(result)
+            "minimizeLockScreen" -> handleMinimizeLockScreen(result)
             else -> result.notImplemented()
         }
     }
@@ -92,7 +112,7 @@ class BlockingMethodHandler(
                 }
             } catch (e: Exception) {
                 mainHandler.post {
-                    result.success(emptyList<Map<String, Any?>>())
+                    result.error("GET_INSTALLED_APPS_FAILED", e.message, null)
                 }
             }
         }
@@ -203,7 +223,7 @@ class BlockingMethodHandler(
             val pendingTimestamps = store.consumePendingBootSyncs()
             result.success(pendingTimestamps)
         } catch (e: Exception) {
-            result.success(emptyList<Long>())
+            result.error("CONSUME_BOOT_EVENTS_FAILED", e.message, null)
         }
     }
 
@@ -291,7 +311,68 @@ class BlockingMethodHandler(
             val logs = store.consumePendingActivityLogs()
             result.success(logs)
         } catch (e: Exception) {
-            result.success(emptyList<Map<String, Any?>>())
+            result.error("CONSUME_ACTIVITY_LOGS_FAILED", e.message, null)
+        }
+    }
+
+    private fun handleLaunchTargetApp(call: MethodCall, result: MethodChannel.Result) {
+        try {
+            val packageName = when (val args = call.arguments) {
+                is Map<*, *> -> args["packageName"] as? String
+                is String -> args
+                else -> try {
+                    call.argument<String>("packageName")
+                } catch (_: Exception) {
+                    null
+                }
+            }
+            if (packageName.isNullOrBlank()) {
+                result.success(false)
+                return
+            }
+            val intent = launchIntentProvider?.invoke(packageName)
+                ?: context.packageManager?.getLaunchIntentForPackage(packageName)
+            if (intent != null) {
+                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED)
+                context.startActivity(intent)
+                val activity = activityProvider?.invoke() ?: (context as? Activity)
+                activity?.moveTaskToBack(true)
+                result.success(true)
+            } else {
+                result.success(false)
+            }
+        } catch (_: Exception) {
+            result.success(false)
+        }
+    }
+
+    private fun handleGetInitialLockIntent(result: MethodChannel.Result) {
+        val providerData = if (!initialProviderInvoked) {
+            initialProviderInvoked = true
+            try {
+                initialLockIntentProvider?.invoke()
+            } catch (_: Exception) {
+                null
+            }
+        } else {
+            null
+        }
+        val data = cachedLockIntent ?: providerData
+        cachedLockIntent = null
+        result.success(data)
+    }
+
+    private fun handleMinimizeLockScreen(result: MethodChannel.Result) {
+        try {
+            val activity = activityProvider?.invoke() ?: (context as? Activity)
+            if (activity != null) {
+                activity.moveTaskToBack(true)
+                result.success(true)
+            } else {
+                result.success(false)
+            }
+        } catch (e: Exception) {
+            result.success(false)
         }
     }
 

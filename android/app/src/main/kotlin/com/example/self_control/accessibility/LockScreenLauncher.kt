@@ -24,7 +24,8 @@ object LockScreenLauncher {
         val intent = Intent(context, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or
                     Intent.FLAG_ACTIVITY_CLEAR_TOP or
-                    Intent.FLAG_ACTIVITY_SINGLE_TOP
+                    Intent.FLAG_ACTIVITY_SINGLE_TOP or
+                    Intent.FLAG_ACTIVITY_NO_ANIMATION
             putExtra("is_locked", true)
             putExtra("package_name", decision.packageName)
             putExtra("blocked_at", decision.timestamp)
@@ -33,13 +34,24 @@ object LockScreenLauncher {
 
         val options = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
             try {
-                ActivityOptions.makeBasic().apply {
-                    val method = ActivityOptions::class.java.getMethod(
+                val basic = ActivityOptions.makeBasic()
+                try {
+                    val method14 = ActivityOptions::class.java.getMethod(
                         "setPendingIntentBackgroundActivityStartMode",
                         Int::class.javaPrimitiveType
                     )
-                    method.invoke(this, 1)
-                }.toBundle()
+                    method14.invoke(basic, 1)
+                } catch (_: Throwable) {
+                }
+                try {
+                    val method15 = ActivityOptions::class.java.getMethod(
+                        "setPendingIntentCreatorBackgroundActivityStartMode",
+                        Int::class.javaPrimitiveType
+                    )
+                    method15.invoke(basic, 1)
+                } catch (_: Throwable) {
+                }
+                basic.toBundle()
             } catch (_: Throwable) {
                 null
             }
