@@ -7,7 +7,7 @@ class DebounceFilter(
     private val timeProvider: TimeProvider = SystemTimeProvider
 ) {
     companion object {
-        const val DEFAULT_THRESHOLD_MS = 1500L
+        const val DEFAULT_THRESHOLD_MS = 400L
     }
 
     private data class State(

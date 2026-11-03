@@ -70,7 +70,7 @@ class LockSessionService {
           ? await sessionRepository?.getActiveSessionForPackage(packageName)
           : null;
       checkCancelled();
-      if (session != null) {
+      if (session != null && session.endAt.millisecondsSinceEpoch > now) {
         start = session.startAt.millisecondsSinceEpoch;
         end = session.endAt.millisecondsSinceEpoch;
       } else {

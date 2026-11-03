@@ -35,6 +35,32 @@ void main() {
     expect(sessions.sessions.length, 2);
   });
 
+  test('expired active session is ignored and new session is created', () async {
+    final sessions = FakeBlockSessionRepository([
+      BlockSession(
+        packageName: 'com.expired',
+        startAt: DateTime.fromMillisecondsSinceEpoch(100000),
+        endAt: DateTime.fromMillisecondsSinceEpoch(200000),
+        status: BlockSession.statusActive,
+        createdAt: DateTime.fromMillisecondsSinceEpoch(100000),
+      ),
+    ]);
+    final service = LockSessionService(
+      settingsRepository: FakeSettingsRepository(),
+      appRepository: FakeBlockedAppRepository(),
+      sessionRepository: sessions,
+    );
+    final setup = await service.initialize(
+      packageName: 'com.expired',
+      nowMs: () => 300000,
+    );
+    expect(setup.startEpochMs, 300000);
+    expect(setup.endEpochMs, 600000);
+    expect(sessions.sessions.length, 2);
+    expect(sessions.sessions.last.startAt.millisecondsSinceEpoch, 300000);
+    expect(sessions.sessions.last.endAt.millisecondsSinceEpoch, 600000);
+  });
+
   test('countdown retains ceiling and exact backward tolerance', () {
     final policy = LockCountdownPolicy(
       startEpochMs: 100000,

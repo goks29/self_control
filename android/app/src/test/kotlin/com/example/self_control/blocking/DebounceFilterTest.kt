@@ -18,6 +18,11 @@ class DebounceFilterTest {
     }
 
     @Test
+    fun defaultThresholdIs400ms() {
+        assertEquals(400L, DebounceFilter.DEFAULT_THRESHOLD_MS)
+    }
+
+    @Test
     fun blankPackageReturnsFalse() {
         assertFalse(filter.shouldProceed(""))
         assertFalse(filter.shouldProceed("   "))

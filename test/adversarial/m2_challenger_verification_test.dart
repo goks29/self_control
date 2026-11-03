@@ -472,7 +472,7 @@ void main() {
           BlockSession(
             packageName: 'com.app.to_unlock',
             startAt: DateTime.fromMillisecondsSinceEpoch(now - 10000),
-            endAt: DateTime.fromMillisecondsSinceEpoch(now - 1000),
+            endAt: DateTime.fromMillisecondsSinceEpoch(now + 290000),
             status: BlockSession.statusActive,
             createdAt: DateTime.fromMillisecondsSinceEpoch(now - 10000),
           ),
@@ -493,6 +493,8 @@ void main() {
               packageName: 'com.app.to_unlock',
               appName: 'Unlock Me App',
               appId: 10,
+              startAtEpochMs: now - 10000,
+              endAtEpochMs: now - 1000,
               settingsRepository: settingsRepo,
               temporaryUnlockRepository: unlockRepo,
               activityLogRepository: logRepo,
