@@ -4,20 +4,26 @@ import 'package:flutter/material.dart';
 
 import '../../core/constants/app_colors.dart';
 import '../../data/models/activity_log.dart';
+import '../../data/models/focus_task.dart';
 import '../../data/repositories/activity_log_repository.dart';
 import '../../data/repositories/activity_log_repository_impl.dart';
+import '../../data/repositories/task_repository.dart';
+import '../../data/repositories/task_repository_impl.dart';
 import '../widgets/app_button.dart';
 import '../widgets/app_card.dart';
+import '../widgets/app_text_field.dart';
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({
     super.key,
     this.activityLogRepository,
+    this.taskRepository,
     this.onNavigateToApplications,
     this.refreshRevision = 0,
   });
 
   final ActivityLogRepository? activityLogRepository;
+  final TaskRepository? taskRepository;
   final VoidCallback? onNavigateToApplications;
   final int refreshRevision;
 
@@ -27,10 +33,14 @@ class DashboardScreen extends StatefulWidget {
 
 class _DashboardScreenState extends State<DashboardScreen> {
   late final ActivityLogRepository _logRepo;
+  late final TaskRepository _taskRepo;
+  final TextEditingController _taskController = TextEditingController();
+
   bool _isLoading = true;
   Map<String, int> _attemptCounts = {};
   Map<String, String> _appNames = {};
   Map<String, DateTime> _lastAttempts = {};
+  List<FocusTask> _tasks = [];
   int _failedBlocksCount = 0;
   int _loadRevision = 0;
   String? _error;
@@ -39,7 +49,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
   void initState() {
     super.initState();
     _logRepo = widget.activityLogRepository ?? ActivityLogRepositoryImpl();
+    _taskRepo = widget.taskRepository ?? TaskRepositoryImpl();
     _loadData();
+  }
+
+  @override
+  void dispose() {
+    _taskController.dispose();
+    super.dispose();
   }
 
   @override
@@ -68,6 +85,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
       final logs = await _logRepo.getLogs(limit: 100);
       if (!isCurrent()) return;
 
+      List<FocusTask> loadedTasks = [];
+      try {
+        loadedTasks = await _taskRepo.getAllTasks();
+      } catch (_) {
+        loadedTasks = [];
+      }
+      if (!isCurrent()) return;
+
       final appNames = <String, String>{};
       final lastAttempts = <String, DateTime>{};
       for (final log in logs) {
@@ -84,6 +109,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         _attemptCounts = counts;
         _appNames = appNames;
         _lastAttempts = lastAttempts;
+        _tasks = loadedTasks;
         _failedBlocksCount = outcomeCounts[ActivityLog.outcomeFailed] ?? 0;
       });
     } catch (error, stackTrace) {
@@ -100,6 +126,143 @@ class _DashboardScreenState extends State<DashboardScreen> {
     } finally {
       if (isCurrent()) setState(() => _isLoading = false);
     }
+  }
+
+  Future<void> _addTask() async {
+    final text = _taskController.text.trim();
+    if (text.isEmpty) return;
+    try {
+      await _taskRepo.addTask(text);
+      _taskController.clear();
+      final updated = await _taskRepo.getAllTasks();
+      if (mounted) {
+        setState(() => _tasks = updated);
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _toggleTask(FocusTask task) async {
+    if (task.id == null) return;
+    try {
+      await _taskRepo.toggleTaskCompletion(task.id!, !task.isCompleted);
+      final updated = await _taskRepo.getAllTasks();
+      if (mounted) {
+        setState(() => _tasks = updated);
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _deleteTask(FocusTask task) async {
+    if (task.id == null) return;
+    try {
+      await _taskRepo.deleteTask(task.id!);
+      final updated = await _taskRepo.getAllTasks();
+      if (mounted) {
+        setState(() => _tasks = updated);
+      }
+    } catch (_) {}
+  }
+
+  Widget _buildTaskSection(BuildContext context) {
+    final pendingCount = _tasks.where((t) => !t.isCompleted).length;
+    return AppCard(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Expanded(
+                child: Text(
+                  'Daftar Tugas Fokus',
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                decoration: BoxDecoration(
+                  color: AppColors.peach,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Text(
+                  '$pendingCount belum selesai',
+                  style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                    fontWeight: FontWeight.w600,
+                    color: AppColors.darkGreen,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Text(
+            'Tugas yang belum selesai akan ditampilkan saat Anda menunggu timer layar kunci.',
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+          const SizedBox(height: 12),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: AppTextField(
+                  hint: 'Tambah tugas yang harus dikerjakan...',
+                  controller: _taskController,
+                  onFieldSubmitted: (_) => _addTask(),
+                ),
+              ),
+              const SizedBox(width: 8),
+              AppButton(
+                text: 'Tambah',
+                isFullWidth: false,
+                onPressed: _addTask,
+              ),
+            ],
+          ),
+          if (_tasks.isNotEmpty) ...[
+            const SizedBox(height: 12),
+            ..._tasks.map(
+              (task) => Padding(
+                padding: const EdgeInsets.only(bottom: 6),
+                child: Row(
+                  children: [
+                    Checkbox(
+                      value: task.isCompleted,
+                      activeColor: AppColors.brown,
+                      onChanged: (_) => _toggleTask(task),
+                    ),
+                    Expanded(
+                      child: Text(
+                        task.title,
+                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                          decoration: task.isCompleted
+                              ? TextDecoration.lineThrough
+                              : null,
+                          color: task.isCompleted
+                              ? AppColors.darkGreenMuted
+                              : AppColors.darkGreen,
+                        ),
+                      ),
+                    ),
+                    IconButton(
+                      icon: const Icon(
+                        Icons.delete_outline,
+                        color: AppColors.brown,
+                        size: 20,
+                      ),
+                      tooltip: 'Hapus Tugas',
+                      onPressed: () => _deleteTask(task),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
   }
 
   String _formatDateTime(DateTime dt) {
@@ -162,9 +325,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
           color: AppColors.brown,
           child: ListView(
             physics: const AlwaysScrollableScrollPhysics(),
-            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 48),
+            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
             children: [
-              const SizedBox(height: 48),
+              _buildTaskSection(context),
+              const SizedBox(height: 32),
               Center(
                 child: Icon(
                   Icons.shield_outlined,
@@ -214,6 +378,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
           physics: const AlwaysScrollableScrollPhysics(),
           padding: const EdgeInsets.all(16),
           children: [
+            _buildTaskSection(context),
+            const SizedBox(height: 16),
             AppCard(
               padding: const EdgeInsets.all(16),
               child: Column(

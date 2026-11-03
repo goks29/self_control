@@ -32,6 +32,7 @@ class AppDatabase {
   static const String tableTemporaryUnlocks = 'temporary_unlocks';
   static const String tableActivityLogs = 'activity_logs';
   static const String tableAppSettings = 'app_settings';
+  static const String tableFocusTasks = 'focus_tasks';
 
   static String? defaultCustomPath;
 
@@ -219,6 +220,15 @@ class AppDatabase {
         attempted_at INTEGER NOT NULL,
         FOREIGN KEY (app_id) REFERENCES $tableBlockedApps(id) ON DELETE SET NULL,
         FOREIGN KEY (session_id) REFERENCES $tableBlockSessions(id) ON DELETE SET NULL
+      );
+    ''');
+
+    batch.execute('''
+      CREATE TABLE IF NOT EXISTS $tableFocusTasks (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        title TEXT NOT NULL,
+        is_completed INTEGER NOT NULL DEFAULT 0 CHECK (is_completed IN (0, 1)),
+        created_at INTEGER NOT NULL
       );
     ''');
 

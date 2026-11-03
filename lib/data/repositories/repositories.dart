@@ -10,3 +10,5 @@ export 'settings_repository.dart';
 export 'settings_repository_impl.dart';
 export 'temporary_unlock_repository.dart';
 export 'temporary_unlock_repository_impl.dart';
+export 'task_repository.dart';
+export 'task_repository_impl.dart';

@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/platform/blocking_platform_channel.dart';
 import '../../data/models/activity_log.dart';
+import '../../data/models/focus_task.dart';
 import '../../application/services/lock_session_service.dart';
 import '../../data/repositories/activity_log_repository.dart';
 import '../../data/repositories/activity_log_repository_impl.dart';
@@ -15,8 +16,11 @@ import '../../data/repositories/blocked_app_repository.dart';
 import '../../data/repositories/blocked_app_repository_impl.dart';
 import '../../data/repositories/settings_repository.dart';
 import '../../data/repositories/settings_repository_impl.dart';
+import '../../data/repositories/task_repository.dart';
+import '../../data/repositories/task_repository_impl.dart';
 import '../../data/repositories/temporary_unlock_repository.dart';
 import '../widgets/app_button.dart';
+import '../widgets/app_card.dart';
 import 'widgets/password_unlock_modal.dart';
 
 class LockedScreen extends StatefulWidget {
@@ -32,6 +36,7 @@ class LockedScreen extends StatefulWidget {
     this.temporaryUnlockRepository,
     this.activityLogRepository,
     this.blockedAppRepository,
+    this.taskRepository,
     this.platformChannel,
     this.nowMsProvider,
     this.autoOpenModal = true,
@@ -48,6 +53,7 @@ class LockedScreen extends StatefulWidget {
   final TemporaryUnlockRepository? temporaryUnlockRepository;
   final ActivityLogRepository? activityLogRepository;
   final BlockedAppRepository? blockedAppRepository;
+  final TaskRepository? taskRepository;
   final BlockingPlatformChannel? platformChannel;
   final int Function()? nowMsProvider;
   final bool autoOpenModal;
@@ -62,6 +68,7 @@ class _LockedScreenState extends State<LockedScreen>
   late final SettingsRepository _settingsRepo;
   late final BlockSessionRepository? _sessionRepo;
   late final BlockedAppRepository _blockedAppRepo;
+  late final TaskRepository _taskRepo;
   late final AnimationController _rotationController;
 
   final Stopwatch _monotonicStopwatch = Stopwatch();
@@ -79,6 +86,7 @@ class _LockedScreenState extends State<LockedScreen>
   String _customMessage = 'Tetap fokus pada tujuanmu.';
   String? _resolvedAppName;
   int? _resolvedAppId;
+  List<FocusTask> _pendingTasks = [];
   bool _modalTriggered = false;
   bool _isLoading = true;
 
@@ -89,6 +97,7 @@ class _LockedScreenState extends State<LockedScreen>
     _settingsRepo = widget.settingsRepository ?? SettingsRepositoryImpl();
     _sessionRepo = widget.blockSessionRepository;
     _blockedAppRepo = widget.blockedAppRepository ?? BlockedAppRepositoryImpl();
+    _taskRepo = widget.taskRepository ?? TaskRepositoryImpl();
 
     _rotationController = AnimationController(
       vsync: this,
@@ -136,11 +145,29 @@ class _LockedScreenState extends State<LockedScreen>
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
       _tickTimer();
+      _loadPendingTasks();
     }
   }
 
   int _getNow() =>
       widget.nowMsProvider?.call() ?? DateTime.now().millisecondsSinceEpoch;
+
+  Future<void> _loadPendingTasks() async {
+    try {
+      final tasks = await _taskRepo.getPendingTasks();
+      if (mounted) {
+        setState(() => _pendingTasks = tasks);
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _toggleTaskFromLockScreen(FocusTask task) async {
+    if (task.id == null) return;
+    try {
+      await _taskRepo.toggleTaskCompletion(task.id!, !task.isCompleted);
+      await _loadPendingTasks();
+    } catch (_) {}
+  }
 
   Future<void> _initScreen() async {
     final generation = ++_initializationGeneration;
@@ -169,6 +196,15 @@ class _LockedScreenState extends State<LockedScreen>
             isCancelled: () => !isCurrent(),
           );
       if (!isCurrent()) return;
+
+      List<FocusTask> loadedTasks = [];
+      try {
+        loadedTasks = await _taskRepo.getPendingTasks();
+      } catch (_) {
+        loadedTasks = [];
+      }
+      if (!isCurrent()) return;
+
       _countdown = LockCountdownPolicy(
         startEpochMs: setup.startEpochMs,
         endEpochMs: setup.endEpochMs,
@@ -180,6 +216,7 @@ class _LockedScreenState extends State<LockedScreen>
         _customMessage = setup.message;
         _resolvedAppName = setup.appName;
         _resolvedAppId = setup.appId;
+        _pendingTasks = loadedTasks;
         _isLoading = false;
       });
       _tickTimer();
@@ -472,6 +509,57 @@ class _LockedScreenState extends State<LockedScreen>
                                 textAlign: TextAlign.center,
                                 style: Theme.of(context).textTheme.bodySmall,
                               ),
+                              if (_pendingTasks.isNotEmpty) ...[
+                                const SizedBox(height: 24),
+                                AppCard(
+                                  padding: const EdgeInsets.all(16),
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        'Tugas yang Harus Dikerjakan:',
+                                        style: Theme.of(context)
+                                            .textTheme
+                                            .titleSmall
+                                            ?.copyWith(
+                                              fontWeight: FontWeight.w700,
+                                            ),
+                                      ),
+                                      const SizedBox(height: 8),
+                                      ..._pendingTasks.map(
+                                        (task) => InkWell(
+                                          onTap: () =>
+                                              _toggleTaskFromLockScreen(task),
+                                          child: Padding(
+                                            padding: const EdgeInsets.symmetric(
+                                              vertical: 4,
+                                            ),
+                                            child: Row(
+                                              children: [
+                                                const Icon(
+                                                  Icons.radio_button_unchecked,
+                                                  size: 20,
+                                                  color: AppColors.brown,
+                                                ),
+                                                const SizedBox(width: 10),
+                                                Expanded(
+                                                  child: Text(
+                                                    task.title,
+                                                    style: Theme.of(context)
+                                                        .textTheme
+                                                        .bodyMedium,
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
                               const Spacer(),
                               if (_launchError != null) ...[
                                 Text(
