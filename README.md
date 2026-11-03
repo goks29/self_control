@@ -1,4 +1,4 @@
-# Self Control 📱⏳
+# Self Control 
 
 Aplikasi Android berbasis Flutter untuk pengendalian diri, fokus, dan pencegahan kecanduan gawai. Menggabungkan lapisan antarmuka Flutter yang modern dengan layanan aksesibilitas (*Android Accessibility Service*) native untuk memblokir aplikasi pengalih perhatian secara real-time dan anti-manipulasi (*tamper-resistant*).
 
