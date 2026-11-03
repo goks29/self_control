@@ -4,7 +4,7 @@ Aplikasi Android berbasis Flutter untuk pengendalian diri, fokus, dan pencegahan
 
 ---
 
-## ✨ Fitur Utama
+## Fitur Utama
 
 - **Pemblokiran Real-time & Responsif**:
   Mendeteksi aplikasi target di latar depan secara instan menggunakan `AppMonitorService` (*Android Accessibility Service*) dengan filter debounce optimal (400ms) tanpa jeda yang mengganggu.
@@ -23,7 +23,7 @@ Aplikasi Android berbasis Flutter untuk pengendalian diri, fokus, dan pencegahan
 
 ---
 
-## 🏛️ Arsitektur Proyek
+## Arsitektur Proyek
 
 Proyek ini menerapkan prinsip arsitektur modular berlapis (*Clean Architecture*):
 
@@ -48,7 +48,7 @@ self_control/
 
 ---
 
-## 🛠️ Prasyarat & Lingkungan Pengembangan
+## Prasyarat & Lingkungan Pengembangan
 
 - **Flutter SDK**: `>=3.13.5`
 - **Dart SDK**: `^3.13.5`
@@ -58,7 +58,7 @@ self_control/
 
 ---
 
-## 🚀 Panduan Memulai
+## Panduan Memulai
 
 ### 1. Kloning Repositori
 ```bash
@@ -85,7 +85,7 @@ Agar aplikasi dapat memonitor dan memblokir aplikasi target:
 
 ---
 
-## 🧪 Pengujian (*Testing*)
+## Pengujian (*Testing*)
 
 Proyek ini dilengkapi dengan suite pengujian otomatis komprehensif, mencakup *unit test*, *widget test*, hingga *adversarial state tests*.
 
@@ -103,7 +103,7 @@ cd ..
 
 ---
 
-## 🔒 Keamanan & Privasi
+## Keamanan & Privasi
 
 - **Penyimpanan Lokal**: Seluruh data aturan pemblokiran, sesi, dan log aktivitas tersimpan secara offline di perangkat pengguna menggunakan SQLite.
 - **Enkripsi Password**: Kata sandi penguncian disimpan dalam bentuk hash SHA-256 dengan salt unik, tidak pernah disimpan dalam bentuk teks polos (*plain text*).
@@ -111,6 +111,3 @@ cd ..
 
 ---
 
-## 📄 Lisensi
-
-Didistribusikan di bawah lisensi privat / internal proyek Self Control.
