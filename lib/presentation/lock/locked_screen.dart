@@ -68,7 +68,7 @@ class _LockedScreenState extends State<LockedScreen>
   late final SettingsRepository _settingsRepo;
   late final BlockSessionRepository? _sessionRepo;
   late final BlockedAppRepository _blockedAppRepo;
-  late final TaskRepository _taskRepo;
+  late final TaskRepository? _taskRepo;
   late final AnimationController _rotationController;
 
   final Stopwatch _monotonicStopwatch = Stopwatch();
@@ -97,7 +97,7 @@ class _LockedScreenState extends State<LockedScreen>
     _settingsRepo = widget.settingsRepository ?? SettingsRepositoryImpl();
     _sessionRepo = widget.blockSessionRepository;
     _blockedAppRepo = widget.blockedAppRepository ?? BlockedAppRepositoryImpl();
-    _taskRepo = widget.taskRepository ?? TaskRepositoryImpl();
+    _taskRepo = widget.taskRepository;
 
     _rotationController = AnimationController(
       vsync: this,
@@ -153,18 +153,29 @@ class _LockedScreenState extends State<LockedScreen>
       widget.nowMsProvider?.call() ?? DateTime.now().millisecondsSinceEpoch;
 
   Future<void> _loadPendingTasks() async {
+    final repo = _taskRepo;
+    if (repo == null) return;
     try {
-      final tasks = await _taskRepo.getPendingTasks();
+      final tasks = await repo.getPendingTasks();
       if (mounted) {
         setState(() => _pendingTasks = tasks);
       }
-    } catch (_) {}
+    } catch (e, st) {
+      developer.log(
+        'Failed to load pending tasks on lock screen',
+        name: 'self_control.lock',
+        level: 900,
+        error: e,
+        stackTrace: st,
+      );
+    }
   }
 
   Future<void> _toggleTaskFromLockScreen(FocusTask task) async {
-    if (task.id == null) return;
+    final repo = _taskRepo;
+    if (repo == null || task.id == null) return;
     try {
-      await _taskRepo.toggleTaskCompletion(task.id!, !task.isCompleted);
+      await repo.toggleTaskCompletion(task.id!, !task.isCompleted);
       await _loadPendingTasks();
     } catch (_) {}
   }
@@ -197,14 +208,6 @@ class _LockedScreenState extends State<LockedScreen>
           );
       if (!isCurrent()) return;
 
-      List<FocusTask> loadedTasks = [];
-      try {
-        loadedTasks = await _taskRepo.getPendingTasks();
-      } catch (_) {
-        loadedTasks = [];
-      }
-      if (!isCurrent()) return;
-
       _countdown = LockCountdownPolicy(
         startEpochMs: setup.startEpochMs,
         endEpochMs: setup.endEpochMs,
@@ -216,7 +219,6 @@ class _LockedScreenState extends State<LockedScreen>
         _customMessage = setup.message;
         _resolvedAppName = setup.appName;
         _resolvedAppId = setup.appId;
-        _pendingTasks = loadedTasks;
         _isLoading = false;
       });
       _tickTimer();
@@ -226,6 +228,7 @@ class _LockedScreenState extends State<LockedScreen>
           (_) => _tickTimer(),
         );
       }
+      unawaited(_loadPendingTasks());
     } catch (_) {
       if (!isCurrent()) return;
       setState(() {
@@ -379,6 +382,14 @@ class _LockedScreenState extends State<LockedScreen>
     return '${m.toString().padLeft(2, '0')}:${s.toString().padLeft(2, '0')}';
   }
 
+  void _returnToHomeScreen(BuildContext context) {
+    if (Navigator.of(context).canPop()) {
+      Navigator.of(context).pop();
+    } else {
+      Navigator.of(context).pushReplacementNamed('/');
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final appDisplayName =
@@ -419,7 +430,7 @@ class _LockedScreenState extends State<LockedScreen>
                         AppButton(
                           text: 'Kembali ke Layar Utama',
                           variant: AppButtonVariant.secondary,
-                          onPressed: () => SystemNavigator.pop(),
+                          onPressed: () => _returnToHomeScreen(context),
                         ),
                       ],
                     ),
@@ -580,7 +591,7 @@ class _LockedScreenState extends State<LockedScreen>
                               AppButton(
                                 text: 'Kembali ke Layar Utama',
                                 variant: AppButtonVariant.secondary,
-                                onPressed: () => SystemNavigator.pop(),
+                                onPressed: () => _returnToHomeScreen(context),
                               ),
                             ],
                           ),

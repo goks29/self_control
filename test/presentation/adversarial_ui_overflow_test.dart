@@ -94,10 +94,11 @@ void main() {
       await tester.pump(const Duration(milliseconds: 100));
 
       expect(tester.takeException(), isNull);
-      expect(find.text('Belum Ada Aktivitas Blokir'), findsOneWidget);
 
-      await tester.drag(find.byType(ListView), const Offset(0, -100));
+      await tester.drag(find.byType(ListView), const Offset(0, -300));
       await tester.pump();
+
+      expect(find.text('Belum Ada Aktivitas Blokir'), findsOneWidget);
       expect(tester.takeException(), isNull);
     });
 

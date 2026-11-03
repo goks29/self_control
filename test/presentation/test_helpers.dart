@@ -5,12 +5,14 @@ import 'package:self_control/core/platform/blocking_platform_channel.dart';
 import 'package:self_control/data/models/activity_log.dart';
 import 'package:self_control/data/models/block_session.dart';
 import 'package:self_control/data/models/blocked_app.dart';
+import 'package:self_control/data/models/focus_task.dart';
 import 'package:self_control/data/models/temporary_unlock.dart';
 import 'package:self_control/data/repositories/activity_log_repository.dart';
 import 'package:self_control/data/repositories/block_session_repository.dart';
 import 'package:self_control/data/repositories/blocked_app_repository.dart';
 import 'package:self_control/data/database/app_database.dart';
 import 'package:self_control/data/repositories/settings_repository.dart';
+import 'package:self_control/data/repositories/task_repository.dart';
 import 'package:self_control/data/repositories/temporary_unlock_repository.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
@@ -454,4 +456,52 @@ class FakeBlockSessionRepository implements BlockSessionRepository {
         .toList();
   }
 }
+
+class FakeTaskRepository implements TaskRepository {
+  final List<FocusTask> tasks;
+  int _nextId = 1;
+
+  FakeTaskRepository([List<FocusTask>? initialTasks])
+      : tasks = initialTasks != null ? List.from(initialTasks) : [];
+
+  @override
+  Future<List<FocusTask>> getAllTasks() async => List.unmodifiable(tasks);
+
+  @override
+  Future<List<FocusTask>> getPendingTasks() async =>
+      List.unmodifiable(tasks.where((t) => !t.isCompleted));
+
+  @override
+  Future<int> addTask(String title) async {
+    final trimmed = title.trim();
+    if (trimmed.isEmpty) throw ArgumentError('Task title cannot be empty');
+    final id = _nextId++;
+    tasks.add(FocusTask(id: id, title: trimmed, createdAt: DateTime.now()));
+    return id;
+  }
+
+  @override
+  Future<void> toggleTaskCompletion(int id, bool isCompleted) async {
+    final index = tasks.indexWhere((t) => t.id == id);
+    if (index != -1) {
+      tasks[index] = tasks[index].copyWith(isCompleted: isCompleted);
+    }
+  }
+
+  @override
+  Future<void> deleteTask(int id) async {
+    tasks.removeWhere((t) => t.id == id);
+  }
+
+  @override
+  Future<void> updateTask(int id, String newTitle) async {
+    final trimmed = newTitle.trim();
+    if (trimmed.isEmpty) throw ArgumentError('Task title cannot be empty');
+    final index = tasks.indexWhere((t) => t.id == id);
+    if (index != -1) {
+      tasks[index] = tasks[index].copyWith(title: trimmed);
+    }
+  }
+}
+
 

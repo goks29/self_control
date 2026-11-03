@@ -11,6 +11,8 @@ import '../../data/repositories/activity_log_repository_impl.dart';
 import '../../data/repositories/blocked_app_repository.dart';
 import '../../data/repositories/blocked_app_repository_impl.dart';
 import '../../data/repositories/settings_repository.dart';
+import '../../data/repositories/task_repository.dart';
+import '../../data/repositories/task_repository_impl.dart';
 import '../../data/repositories/temporary_unlock_repository.dart';
 import '../../data/repositories/temporary_unlock_repository_impl.dart';
 import '../application/application_selection_screen.dart';
@@ -26,6 +28,7 @@ class MainScaffold extends StatefulWidget {
     this.platformChannel,
     this.settingsRepository,
     this.temporaryUnlockRepository,
+    this.taskRepository,
     this.initialIndex = 0,
   });
 
@@ -34,6 +37,7 @@ class MainScaffold extends StatefulWidget {
   final BlockingPlatformChannel? platformChannel;
   final SettingsRepository? settingsRepository;
   final TemporaryUnlockRepository? temporaryUnlockRepository;
+  final TaskRepository? taskRepository;
   final int initialIndex;
 
   @override
@@ -321,6 +325,7 @@ class _MainScaffoldState extends State<MainScaffold>
                   DashboardScreen(
                     refreshRevision: _dataRevision,
                     activityLogRepository: widget.activityLogRepository,
+                    taskRepository: widget.taskRepository,
                     onNavigateToApplications: () => _onTabSelected(1),
                   ),
                   ApplicationSelectionScreen(

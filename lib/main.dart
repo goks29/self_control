@@ -8,6 +8,7 @@ import 'core/platform/blocking_platform_channel.dart';
 import 'core/theme/app_theme.dart';
 import 'data/database/app_database.dart';
 import 'data/repositories/block_session_repository_impl.dart';
+import 'data/repositories/task_repository_impl.dart';
 import 'presentation/lock/locked_screen.dart';
 import 'presentation/navigation/main_scaffold.dart';
 
@@ -249,12 +250,16 @@ class _SelfControlAppState extends State<SelfControlApp> {
               endAtEpochMs: args?['endAtEpochMs'] as int?,
               platformChannel: _channel,
               blockSessionRepository: BlockSessionRepositoryImpl(),
+              taskRepository: TaskRepositoryImpl(),
             ),
           );
         }
         return MaterialPageRoute<void>(
           settings: settings,
-          builder: (_) => MainScaffold(platformChannel: _channel),
+          builder: (_) => MainScaffold(
+            platformChannel: _channel,
+            taskRepository: TaskRepositoryImpl(),
+          ),
         );
       },
     );

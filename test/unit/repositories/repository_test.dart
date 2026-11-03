@@ -381,4 +381,49 @@ void main() {
       expect(await repository.verifyPassword(password), isFalse);
     });
   });
+
+  group('TaskRepository Tests', () {
+    late TaskRepository repository;
+
+    setUp(() {
+      repository = TaskRepositoryImpl(db: db);
+    });
+
+    test('adds, updates, toggles, queries, and deletes focus tasks', () async {
+      final taskId = await repository.addTask('Belajar Flutter');
+      expect(taskId, isPositive);
+
+      var allTasks = await repository.getAllTasks();
+      expect(allTasks.length, 1);
+      expect(allTasks.first.title, 'Belajar Flutter');
+      expect(allTasks.first.isCompleted, isFalse);
+
+      var pendingTasks = await repository.getPendingTasks();
+      expect(pendingTasks.length, 1);
+
+      // Update title
+      await repository.updateTask(taskId, 'Belajar Flutter & Clean Architecture');
+      allTasks = await repository.getAllTasks();
+      expect(allTasks.first.title, 'Belajar Flutter & Clean Architecture');
+
+      // Toggle completion
+      await repository.toggleTaskCompletion(taskId, true);
+      allTasks = await repository.getAllTasks();
+      expect(allTasks.first.isCompleted, isTrue);
+
+      pendingTasks = await repository.getPendingTasks();
+      expect(pendingTasks, isEmpty);
+
+      // Delete task
+      await repository.deleteTask(taskId);
+      allTasks = await repository.getAllTasks();
+      expect(allTasks, isEmpty);
+    });
+
+    test('rejects empty or blank titles on add and update', () async {
+      expect(() => repository.addTask('   '), throwsArgumentError);
+      final id = await repository.addTask('Valid task');
+      expect(() => repository.updateTask(id, '   '), throwsArgumentError);
+    });
+  });
 }

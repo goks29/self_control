@@ -33,7 +33,7 @@ class DashboardScreen extends StatefulWidget {
 
 class _DashboardScreenState extends State<DashboardScreen> {
   late final ActivityLogRepository _logRepo;
-  late final TaskRepository _taskRepo;
+  late final TaskRepository? _taskRepo;
   final TextEditingController _taskController = TextEditingController();
 
   bool _isLoading = true;
@@ -49,7 +49,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   void initState() {
     super.initState();
     _logRepo = widget.activityLogRepository ?? ActivityLogRepositoryImpl();
-    _taskRepo = widget.taskRepository ?? TaskRepositoryImpl();
+    _taskRepo = widget.taskRepository;
     _loadData();
   }
 
@@ -86,10 +86,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
       if (!isCurrent()) return;
 
       List<FocusTask> loadedTasks = [];
-      try {
-        loadedTasks = await _taskRepo.getAllTasks();
-      } catch (_) {
-        loadedTasks = [];
+      final repo = _taskRepo;
+      if (repo != null) {
+        try {
+          loadedTasks = await repo.getAllTasks();
+        } catch (_) {
+          loadedTasks = [];
+        }
       }
       if (!isCurrent()) return;
 
@@ -130,11 +133,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   Future<void> _addTask() async {
     final text = _taskController.text.trim();
-    if (text.isEmpty) return;
+    final repo = _taskRepo;
+    if (text.isEmpty || repo == null) return;
     try {
-      await _taskRepo.addTask(text);
+      await repo.addTask(text);
       _taskController.clear();
-      final updated = await _taskRepo.getAllTasks();
+      final updated = await repo.getAllTasks();
       if (mounted) {
         setState(() => _tasks = updated);
       }
@@ -142,10 +146,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   Future<void> _toggleTask(FocusTask task) async {
-    if (task.id == null) return;
+    final repo = _taskRepo;
+    if (task.id == null || repo == null) return;
     try {
-      await _taskRepo.toggleTaskCompletion(task.id!, !task.isCompleted);
-      final updated = await _taskRepo.getAllTasks();
+      await repo.toggleTaskCompletion(task.id!, !task.isCompleted);
+      final updated = await repo.getAllTasks();
       if (mounted) {
         setState(() => _tasks = updated);
       }
@@ -153,14 +158,34 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   Future<void> _deleteTask(FocusTask task) async {
-    if (task.id == null) return;
+    final repo = _taskRepo;
+    if (task.id == null || repo == null) return;
     try {
-      await _taskRepo.deleteTask(task.id!);
-      final updated = await _taskRepo.getAllTasks();
+      await repo.deleteTask(task.id!);
+      final updated = await repo.getAllTasks();
       if (mounted) {
         setState(() => _tasks = updated);
       }
     } catch (_) {}
+  }
+
+  Future<void> _editTask(FocusTask task) async {
+    final repo = _taskRepo;
+    if (task.id == null || repo == null) return;
+    final newTitle = await showDialog<String>(
+      context: context,
+      builder: (_) => _EditTaskDialog(initialTitle: task.title),
+    );
+    if (newTitle != null &&
+        mounted &&
+        newTitle.isNotEmpty &&
+        newTitle != task.title) {
+      try {
+        await repo.updateTask(task.id!, newTitle);
+        final updated = await repo.getAllTasks();
+        if (mounted) setState(() => _tasks = updated);
+      } catch (_) {}
+    }
   }
 
   Widget _buildTaskSection(BuildContext context) {
@@ -226,36 +251,39 @@ class _DashboardScreenState extends State<DashboardScreen> {
             ..._tasks.map(
               (task) => Padding(
                 padding: const EdgeInsets.only(bottom: 6),
-                child: Row(
-                  children: [
-                    Checkbox(
-                      value: task.isCompleted,
-                      activeColor: AppColors.brown,
-                      onChanged: (_) => _toggleTask(task),
-                    ),
-                    Expanded(
-                      child: Text(
-                        task.title,
-                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                          decoration: task.isCompleted
-                              ? TextDecoration.lineThrough
-                              : null,
-                          color: task.isCompleted
-                              ? AppColors.darkGreenMuted
-                              : AppColors.darkGreen,
+                child: GestureDetector(
+                  onTap: () => _editTask(task),
+                  child: Row(
+                    children: [
+                      Checkbox(
+                        value: task.isCompleted,
+                        activeColor: AppColors.brown,
+                        onChanged: (_) => _toggleTask(task),
+                      ),
+                      Expanded(
+                        child: Text(
+                          task.title,
+                          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                            decoration: task.isCompleted
+                                ? TextDecoration.lineThrough
+                                : null,
+                            color: task.isCompleted
+                                ? AppColors.darkGreenMuted
+                                : AppColors.darkGreen,
+                          ),
                         ),
                       ),
-                    ),
-                    IconButton(
-                      icon: const Icon(
-                        Icons.delete_outline,
-                        color: AppColors.brown,
-                        size: 20,
+                      IconButton(
+                        icon: const Icon(
+                          Icons.delete_outline,
+                          color: AppColors.brown,
+                          size: 20,
+                        ),
+                        tooltip: 'Hapus Tugas',
+                        onPressed: () => _deleteTask(task),
                       ),
-                      tooltip: 'Hapus Tugas',
-                      onPressed: () => _deleteTask(task),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
             ),
@@ -539,6 +567,61 @@ class _DashboardScreenState extends State<DashboardScreen> {
           ],
         ),
       ),
+    );
+  }
+}
+
+class _EditTaskDialog extends StatefulWidget {
+  const _EditTaskDialog({required this.initialTitle});
+  final String initialTitle;
+
+  @override
+  State<_EditTaskDialog> createState() => _EditTaskDialogState();
+}
+
+class _EditTaskDialogState extends State<_EditTaskDialog> {
+  late final TextEditingController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController(text: widget.initialTitle);
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _submit() {
+    final trimmed = _controller.text.trim();
+    if (trimmed.isNotEmpty) {
+      Navigator.of(context).pop(trimmed);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Edit Tugas'),
+      content: TextField(
+        controller: _controller,
+        autofocus: true,
+        maxLength: 200,
+        decoration: const InputDecoration(hintText: 'Judul tugas...'),
+        onSubmitted: (_) => _submit(),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Batal'),
+        ),
+        TextButton(
+          onPressed: _submit,
+          child: const Text('Simpan'),
+        ),
+      ],
     );
   }
 }

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:self_control/data/models/focus_task.dart';
 import 'package:self_control/presentation/lock/locked_screen.dart';
 import 'package:self_control/presentation/lock/widgets/password_unlock_modal.dart';
 import '../test_helpers.dart';
@@ -108,6 +109,86 @@ void main() {
 
       expect(platformChannel.lastLaunchedTargetApp, 'com.tiktok.android');
       expect(onUnlockedCalled, isTrue);
+    });
+
+    testWidgets('returns to home screen when Kembali ke Layar Utama is tapped', (tester) async {
+      final settingsRepo = FakeSettingsRepository();
+      bool popped = false;
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Builder(
+            builder: (context) => ElevatedButton(
+              onPressed: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => LockedScreen(
+                      appName: 'Instagram',
+                      packageName: 'com.instagram.android',
+                      startAtEpochMs: DateTime.now().millisecondsSinceEpoch,
+                      endAtEpochMs: DateTime.now().millisecondsSinceEpoch + 300000,
+                      settingsRepository: settingsRepo,
+                      autoOpenModal: false,
+                    ),
+                  ),
+                ).then((_) => popped = true);
+              },
+              child: const Text('Open Lock'),
+            ),
+          ),
+        ),
+      );
+
+      await tester.tap(find.text('Open Lock'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+
+      expect(find.text('Kembali ke Layar Utama'), findsOneWidget);
+      await tester.tap(find.text('Kembali ke Layar Utama'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+
+      expect(popped, isTrue);
+      expect(find.text('Open Lock'), findsOneWidget);
+    });
+
+    testWidgets('renders pending focus tasks and allows toggling from lock screen', (tester) async {
+      final settingsRepo = FakeSettingsRepository();
+      final taskRepo = FakeTaskRepository([
+        FocusTask(
+          id: 1,
+          title: 'Selesaikan Tugas Kuliah',
+          isCompleted: false,
+          createdAt: DateTime.now(),
+        ),
+      ]);
+      final now = DateTime.now().millisecondsSinceEpoch;
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: LockedScreen(
+            appName: 'Instagram',
+            packageName: 'com.instagram.android',
+            startAtEpochMs: now,
+            endAtEpochMs: now + 300000,
+            settingsRepository: settingsRepo,
+            taskRepository: taskRepo,
+            autoOpenModal: false,
+          ),
+        ),
+      );
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+
+      expect(find.text('Tugas yang Harus Dikerjakan:'), findsOneWidget);
+      expect(find.text('Selesaikan Tugas Kuliah'), findsOneWidget);
+
+      await tester.tap(find.text('Selesaikan Tugas Kuliah'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+
+      expect(find.text('Tugas yang Harus Dikerjakan:'), findsNothing);
+      expect((await taskRepo.getAllTasks()).first.isCompleted, isTrue);
     });
   });
 }

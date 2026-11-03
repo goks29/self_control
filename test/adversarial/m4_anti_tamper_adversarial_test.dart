@@ -45,6 +45,7 @@ void main() {
     testWidgets('Adversarial Test 2: PopScope prevents pop route, keeps LockedScreen mounted, and calls SystemNavigator.pop', (tester) async {
       final settingsRepo = FakeSettingsRepository();
       var systemNavigatorPopCalls = 0;
+      bool returnedHome = false;
 
       tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
         SystemChannels.platform,
@@ -58,16 +59,29 @@ void main() {
 
       await tester.pumpWidget(
         MaterialApp(
-          home: Scaffold(
-            body: LockedScreen(
-              appName: 'TikTok',
-              packageName: 'com.zhiliaoapp.musically',
-              settingsRepository: settingsRepo,
-              autoOpenModal: false,
+          home: Builder(
+            builder: (context) => ElevatedButton(
+              onPressed: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => Scaffold(
+                      body: LockedScreen(
+                        appName: 'TikTok',
+                        packageName: 'com.zhiliaoapp.musically',
+                        settingsRepository: settingsRepo,
+                        autoOpenModal: false,
+                      ),
+                    ),
+                  ),
+                ).then((_) => returnedHome = true);
+              },
+              child: const Text('Open'),
             ),
           ),
         ),
       );
+      await tester.pump();
+      await tester.tap(find.text('Open'));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 100));
 
@@ -84,7 +98,8 @@ void main() {
 
       await tester.tap(find.text('Kembali ke Layar Utama'));
       await tester.pump();
-      expect(systemNavigatorPopCalls, equals(2));
+      await tester.pump(const Duration(milliseconds: 100));
+      expect(returnedHome, isTrue);
     });
 
     testWidgets('Adversarial Test 3: Zero remaining seconds reveals unlock button and allows password unlock modal', (tester) async {

@@ -15,7 +15,10 @@ class TaskRepositoryImpl implements TaskRepository {
     return (appDatabase ?? AppDatabase.instance).database;
   }
 
+  bool _tableEnsured = false;
+
   Future<void> _ensureTable(Database db) async {
+    if (_tableEnsured) return;
     await db.execute(
       'CREATE TABLE IF NOT EXISTS ${AppDatabase.tableFocusTasks} ('
       'id INTEGER PRIMARY KEY AUTOINCREMENT, '
@@ -23,6 +26,7 @@ class TaskRepositoryImpl implements TaskRepository {
       'is_completed INTEGER NOT NULL DEFAULT 0 CHECK (is_completed IN (0, 1)), '
       'created_at INTEGER NOT NULL);',
     );
+    _tableEnsured = true;
   }
 
   @override
@@ -83,6 +87,22 @@ class TaskRepositoryImpl implements TaskRepository {
     await _ensureTable(db);
     await db.delete(
       AppDatabase.tableFocusTasks,
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+  }
+
+  @override
+  Future<void> updateTask(int id, String newTitle) async {
+    final trimmed = newTitle.trim();
+    if (trimmed.isEmpty) {
+      throw ArgumentError('Task title cannot be empty');
+    }
+    final db = await _getDb();
+    await _ensureTable(db);
+    await db.update(
+      AppDatabase.tableFocusTasks,
+      {'title': trimmed},
       where: 'id = ?',
       whereArgs: [id],
     );

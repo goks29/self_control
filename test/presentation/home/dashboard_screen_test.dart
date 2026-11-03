@@ -85,5 +85,60 @@ void main() {
       expect(find.text('2 kali'), findsOneWidget);
       expect(find.text('1 kali'), findsOneWidget);
     });
+
+    testWidgets('allows adding, editing via tap, toggling, and deleting tasks', (tester) async {
+      final logRepo = FakeActivityLogRepository();
+      final taskRepo = FakeTaskRepository();
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: DashboardScreen(
+            activityLogRepository: logRepo,
+            taskRepository: taskRepo,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Daftar Tugas Fokus'), findsOneWidget);
+      expect(find.text('0 belum selesai'), findsOneWidget);
+
+      // Add task
+      await tester.enterText(
+        find.widgetWithText(TextField, 'Tambah tugas yang harus dikerjakan...'),
+        'Belajar Matematika',
+      );
+      await tester.tap(find.text('Tambah'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Belajar Matematika'), findsOneWidget);
+      expect(find.text('1 belum selesai'), findsOneWidget);
+
+      // Tap task to edit
+      await tester.tap(find.text('Belajar Matematika'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Edit Tugas'), findsOneWidget);
+
+      await tester.enterText(
+        find.widgetWithText(TextField, 'Belajar Matematika'),
+        'Belajar Fisika',
+      );
+      await tester.tap(find.text('Simpan'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Belajar Fisika'), findsOneWidget);
+      expect(find.text('Belajar Matematika'), findsNothing);
+
+      // Toggle task
+      await tester.tap(find.byType(Checkbox));
+      await tester.pumpAndSettle();
+      expect(find.text('0 belum selesai'), findsOneWidget);
+
+      // Delete task
+      await tester.tap(find.byTooltip('Hapus Tugas'));
+      await tester.pumpAndSettle();
+      expect(find.text('Belajar Fisika'), findsNothing);
+    });
   });
 }

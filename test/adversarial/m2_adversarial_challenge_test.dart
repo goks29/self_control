@@ -267,38 +267,42 @@ void main() {
       );
     });
 
-    testWidgets('Kembali ke Layar Utama button triggers SystemNavigator.pop', (tester) async {
-      final List<MethodCall> platformCalls = [];
-      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
-        SystemChannels.platform,
-        (MethodCall call) async {
-          platformCalls.add(call);
-          return null;
-        },
-      );
+    testWidgets('Kembali ke Layar Utama button navigates back to caller home screen', (tester) async {
+      bool returnedToHome = false;
 
       await tester.pumpWidget(
         MaterialApp(
-          home: LockedScreen(
-            appName: 'Target App',
-            autoOpenModal: false,
-            settingsRepository: FakeSettingsRepository(),
+          home: Builder(
+            builder: (context) => ElevatedButton(
+              onPressed: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => LockedScreen(
+                      appName: 'Target App',
+                      autoOpenModal: false,
+                      settingsRepository: FakeSettingsRepository(),
+                    ),
+                  ),
+                ).then((_) => returnedToHome = true);
+              },
+              child: const Text('Open Lock'),
+            ),
           ),
         ),
       );
       await tester.pump();
+      await tester.tap(find.text('Open Lock'));
+      await tester.pump();
       await tester.pump(const Duration(milliseconds: 100));
+
+      expect(find.byType(LockedScreen), findsOneWidget);
 
       await tester.tap(find.text('Kembali ke Layar Utama'));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 100));
 
-      expect(
-        platformCalls.any((call) => call.method == 'SystemNavigator.pop'),
-        isTrue,
-      );
-      // LockedScreen is still intact
-      expect(find.byType(LockedScreen), findsOneWidget);
+      expect(returnedToHome, isTrue);
+      expect(find.text('Open Lock'), findsOneWidget);
     });
 
     testWidgets('Dismissing password modal without unlocking retains LockedScreen barrier', (tester) async {
